@@ -264,11 +264,6 @@ public:
         return tree.hybrid_begin();
     }
 
-    inline hybrid_iterator hybrid_start()
-    {
-        return tree.hybrid_start();
-    }
-
     /// Constructs a read/data-write iterator that points to the first invalid
     /// slot in the last leaf of the B+ tree.
     inline iterator end()
@@ -285,11 +280,6 @@ public:
     inline hybrid_iterator hybrid_end()
     {
         return tree.hybrid_end();
-    }
-
-    inline hybrid_iterator hybrid_last()
-    {
-        return tree.hybrid_last();
     }
 
     /// Constructs a read-only constant iterator that points to the first slot
@@ -450,17 +440,6 @@ public:
         return tree.find(key);
     }
 
-    //huanchen
-    const_iterator find_static(const key_type& key) const
-    {
-        return tree.find_static(key);
-    }
-/*
-    const_iterator find_hybrid(const key_type& key) const
-    {
-        return tree.find_hybrid(key);
-    }
-*/
     /// Tries to locate a key in the B+ tree and returns the number of
     /// identical key entries found. Since this is a unique map, count()
     /// returns either 0 or 1.
@@ -500,6 +479,16 @@ public:
     iterator upper_bound(const key_type& key)
     {
         return tree.upper_bound(key);
+    }
+
+    iterator upper_bound_static(const key_type& key)
+    {
+        return tree.upper_bound_static(key);
+    }
+
+    iterator upper_bound_hybrid(const key_type& key)
+    {
+        return tree.upper_bound_hybrid(key);
     }
 
     /// Searches the B+ tree and returns a constant iterator to the
@@ -660,6 +649,17 @@ public:
         return tree.erase_one(key);
     }
 
+    //huanchen
+    bool erase_one_static(const key_type& key)
+    {
+        return tree.erase_one_static(key);
+    }
+
+    bool erase_one_hybrid(const key_type& key)
+    {
+        return tree.erase_one_hybrid(key);
+    }
+
     /// Erases all the key/data pairs associated with the given key. This is
     /// implemented using erase_one().
     size_type erase(const key_type& key)
@@ -667,10 +667,32 @@ public:
         return tree.erase(key);
     }
 
+    //huanchen
+    size_type erase_static(const key_type& key)
+    {
+        return tree.erase_static(key);
+    }
+
+    size_type erase_hybrid(const key_type& key)
+    {
+        return tree.erase_hybrid(key);
+    }
+
     /// Erase the key/data pair referenced by the iterator.
     void erase(iterator iter)
     {
         return tree.erase(iter);
+    }
+
+    //huanchen
+    void erase_static(iterator iter)
+    {
+        return tree.erase_static(iter);
+    }
+
+    void erase_hybrid(iterator iter)
+    {
+        return tree.erase_hybrid(iter);
     }
 
 #ifdef BTREE_TODO
@@ -681,6 +703,17 @@ public:
         abort();
     }
 #endif
+
+    void print(std::ostream& os) const
+    {
+        tree.print(os);
+    }
+
+    //huanchen
+    void print_static(std::ostream& os) const
+    {
+        tree.print_static(os);
+    }
 
 #ifdef BTREE_DEBUG
 
@@ -693,6 +726,12 @@ public:
     void print(std::ostream& os) const
     {
         tree.print(os);
+    }
+
+    //huanchen
+    void print_static(std::ostream& os) const
+    {
+        tree.print_static(os);
     }
 
     /// Print out only the leaves via the double linked list.
