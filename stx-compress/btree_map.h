@@ -266,11 +266,6 @@ public:
         return tree.hybrid_begin();
     }
 
-    inline hybrid_iterator hybrid_start()
-    {
-        return tree.hybrid_start();
-    }
-
     /// Constructs a read/data-write iterator that points to the first invalid
     /// slot in the last leaf of the B+ tree.
     inline iterator end()
@@ -290,11 +285,6 @@ public:
         return tree.hybrid_end();
     }
 
-    inline hybrid_iterator hybrid_last()
-    {
-        return tree.hybrid_last();
-    }
-
     /// Constructs a read-only constant iterator that points to the first slot
     /// in the first leaf of the B+ tree.
     inline const_iterator begin() const
@@ -302,13 +292,6 @@ public:
         return tree.begin();
     }
 
-    //huanchen-comrpess
-/*
-    inline const_iterator static_begin() const
-    {
-        return tree.static_begin();
-    }
-*/
     /// Constructs a read-only constant iterator that points to the first
     /// invalid slot in the last leaf of the B+ tree.
     inline const_iterator end() const
@@ -316,13 +299,6 @@ public:
         return tree.end();
     }
 
-    //huanchen-compress
-/*
-    inline const_iterator static_end() const
-    {
-        return tree.static_end();
-    }
-*/
     /// Constructs a read/data-write reverse iterator that points to the first
     /// invalid slot in the last leaf of the B+ tree. Uses STL magic.
     inline reverse_iterator rbegin()
@@ -330,13 +306,6 @@ public:
         return tree.rbegin();
     }
 
-    //huanchen-compress
-/*
-    inline reverse_iterator static_rbegin()
-    {
-        return tree.static_rbegin();
-    }
-*/
     /// Constructs a read/data-write reverse iterator that points to the first
     /// slot in the first leaf of the B+ tree. Uses STL magic.
     inline reverse_iterator rend()
@@ -344,13 +313,6 @@ public:
         return tree.rend();
     }
 
-    //huanchen-comrpess
-/*
-    inline reverse_iterator static_rend()
-    {
-        return tree.static_rend();
-    }
-*/
     /// Constructs a read-only reverse iterator that points to the first
     /// invalid slot in the last leaf of the B+ tree. Uses STL magic.
     inline const_reverse_iterator rbegin() const
@@ -358,13 +320,6 @@ public:
         return tree.rbegin();
     }
 
-    //huanchen-comrpess
-/*
-    inline const_reverse_iterator static_rbegin() const
-    {
-        return tree.static_rbegin();
-    }
-*/
     /// Constructs a read-only reverse iterator that points to the first slot
     /// in the first leaf of the B+ tree. Uses STL magic.
     inline const_reverse_iterator rend() const
@@ -372,13 +327,6 @@ public:
         return tree.rend();
     }
 
-    //huanchen-compress
-/*
-    inline const_reverse_iterator static_rend() const
-    {
-        return tree.static_rend();
-    }
-*/
 public:
     // *** Access Functions to the Item Count
 
@@ -519,7 +467,7 @@ public:
     }
 
     //huanchen-compress
-    static_iterator find_static(const key_type& key)
+    hybrid_iterator find_static(const key_type& key)
     {
         return tree.find_static(key);
     }
@@ -587,6 +535,17 @@ public:
     {
         return tree.upper_bound(key);
     }
+
+    //huanchen-compress
+    static_iterator upper_bound_static(const key_type& key)
+    {
+        return tree.upper_bound_static(key);
+    }
+
+    hybrid_iterator upper_bound_hybrid(const key_type& key)
+    {
+        return tree.upper_bound_hybrid(key);
+    } 
 
     /// Searches the B+ tree and returns a constant iterator to the
     /// first pair greater than key, or end() if all keys are smaller
@@ -744,6 +703,17 @@ public:
     bool erase_one(const key_type& key)
     {
         return tree.erase_one(key);
+    }
+
+    //huanchen
+    bool erase_one_static(const key_type& key)
+    {
+        return tree.erase_one_static(key);
+    }
+
+    bool erase_one_hybrid(const key_type& key)
+    {
+        return tree.erase_one_hybrid(key);
     }
 
     /// Erases all the key/data pairs associated with the given key. This is

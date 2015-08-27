@@ -1329,9 +1329,7 @@ public:
 
         /// The currently referenced leaf node of the tree
 	typename btree::compressed_node * currnode_compressed;
-        const typename btree::leaf_node * currnode;
-
-	std::string *str;
+        typename btree::leaf_node currnode;
 
         /// Current key/data slot referenced
         unsigned short currslot;
@@ -1368,7 +1366,7 @@ public:
 
         /// Default-Constructor of a mutable iterator
         inline static_iterator()
-	  : currnode_compressed(NULL), currnode(NULL), currslot(0)
+	  : currnode_compressed(NULL), currslot(0)
         { }
 
         /// Initializing-Constructor of a mutable iterator
@@ -1376,36 +1374,43 @@ public:
 	  : currnode_compressed(l_c), currslot(s)
         {
 	  if (l_c != NULL) {
-	    str = new std::string();
-	    snappy::Uncompress(l_c->data, l_c->size, str);
-	    currnode = reinterpret_cast<const leaf_node*>(str->data());
-	  }
-	  else {
-	    currnode = NULL;
+	    std::string str;
+	    snappy::Uncompress(l_c->data, l_c->size, &str);
+	    memcpy(&currnode, str.data(), str.size());
 	  }
 	}
 
-	inline void clear()
+	inline static_iterator(typename btree::compressed_node* l_c, typename btree::leaf_node* l, unsigned short s)
+	  : currnode_compressed(l_c), currslot(s)
 	{
-	  delete str;
+	  memcpy(&currnode, l, sizeof(leaf_node));
 	}
-
-        /// Copy-constructor from a reverse iterator
-        //inline iterator(const reverse_iterator& it) // NOLINT
-        //    : currnode(it.currnode), currslot(it.currslot)
-        //{ }
 
         inline compressed_node *get_currnode_compressed() {
           return currnode_compressed;
         }
 
-        inline const leaf_node *get_currnode() {
-          return currnode;
+        inline leaf_node *get_currnode() {
+          return &currnode;
         }
 
         inline unsigned short get_currslot() {
           return currslot;
         }
+
+	inline bool isBegin() {
+	  if (currnode_compressed != NULL) {
+	    return (currnode_compressed->prevleaf == NULL) && (currslot == 0);
+	  }
+	  return false;
+	}
+
+	inline bool isEnd() {
+	  if (currnode_compressed != NULL) {
+	    return (currnode_compressed->nextleaf == NULL) && (currslot == currnode.slotuse);
+	  }
+	  return false;
+	}
 
         /// Dereference the iterator, this is not a value_type& because key and
         /// value are not stored together
@@ -1427,97 +1432,81 @@ public:
         /// Key of the current slot
         inline const key_type & key() const
         {
-            return currnode->slotkey[currslot];
+            return currnode.slotkey[currslot];
         }
 
         /// Writable reference to the current data object
         inline const data_type & data() const
         {
-            return currnode->slotdata[used_as_set ? 0 : currslot];
+            return currnode.slotdata[used_as_set ? 0 : currslot];
         }
 
-        /// Prefix++ advance the iterator to the next slot
-        inline static_iterator& operator ++ ()
-        {
-            if (currslot + 1 < currnode->slotuse) {
+	inline void moveToNext() {
+	  do {
+            if (currslot + 1 < currnode.slotuse) {
                 ++currslot;
             }
             else if (currnode_compressed->nextleaf != NULL) {
                 currnode_compressed = currnode_compressed->nextleaf;
-		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, str);
-		currnode = reinterpret_cast<const leaf_node*>(str->data());
+		std::string str;
+		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, &str);
+		memcpy(&currnode, str.data(), str.size());
                 currslot = 0;
             }
             else {
                 // this is end()
-                currslot = currnode->slotuse;
+                currslot = currnode.slotuse;
             }
+	  } while (!isEnd() && (currnode.slotdata[currslot] == (data_type)0));
+	}
 
-            return *this;
+	inline void moveToPrev() {
+	  do {
+            if (currslot > 0) {
+                --currslot;
+            }
+            else if (currnode_compressed->prevleaf != NULL) {
+                currnode_compressed = currnode_compressed->prevleaf;
+		std::string str;
+		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, &str);
+		memcpy(&currnode, str.data(), str.size());
+                currslot = currnode->slotuse - 1;
+            }
+            else {
+                // this is begin()
+                currslot = 0;
+            }
+	  } while (!isBegin() && (currnode.slotdata[currslot] == (data_type)0));
+	}
+
+        /// Prefix++ advance the iterator to the next slot
+        inline static_iterator& operator ++ ()
+        {
+	  moveToNext();
+	  return *this;
         }
 
         /// Postfix++ advance the iterator to the next slot
         inline static_iterator operator ++ (int)
         {
-            iterator tmp = *this;   // copy ourselves
-
-            if (currslot + 1 < currnode->slotuse) {
-                ++currslot;
-            }
-            else if (currnode_compressed->nextleaf != NULL) {
-                currnode_compressed = currnode_compressed->nextleaf;
-		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, str);
-		currnode = reinterpret_cast<const leaf_node*>(str->data());
-                currslot = 0;
-            }
-            else {
-                // this is end()
-                currslot = currnode->slotuse;
-            }
-
-            return tmp;
+	  static_iterator tmp = *this;   // copy ourselves
+	  moveToNext();
+	  return tmp;
         }
 
         /// Prefix-- backstep the iterator to the last slot
         inline static_iterator& operator -- ()
         {
-            if (currslot > 0) {
-                --currslot;
-            }
-            else if (currnode_compressed->prevleaf != NULL) {
-                currnode_compressed = currnode_compressed->prevleaf;
-		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, str);
-		currnode = reinterpret_cast<const leaf_node*>(str->data());
-                currslot = currnode->slotuse - 1;
-            }
-            else {
-                // this is begin()
-                currslot = 0;
-            }
-
-            return *this;
+	  moveToPrev();
+	  return *this;
         }
 
         /// Postfix-- backstep the iterator to the last slot
         inline static_iterator operator -- (int)
         {
-            iterator tmp = *this;   // copy ourselves
-
-            if (currslot > 0) {
-                --currslot;
-            }
-            else if (currnode_compressed->prevleaf != NULL) {
-                currnode_compressed = currnode_compressed->prevleaf;
-		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, str);
-		currnode = reinterpret_cast<const leaf_node*>(str->data());
-                currslot = currnode->slotuse - 1;
-            }
-            else {
-                // this is begin()
-                currslot = 0;
-            }
-
-            return tmp;
+	  static_iterator tmp = *this;   // copy ourselves
+	  moveToPrev();
+	  return tmp;
         }
 
         /// Equality of iterators
@@ -1569,13 +1558,9 @@ public:
         /// The currently referenced leaf node of the tree
         typename btree::leaf_node * currnode;
 	typename btree::compressed_node * currnode_static_compressed;
-        const typename btree::leaf_node * currnode_static;
-
-	std::string *str;
+        typename btree::leaf_node currnode_static;
 
         /// Current key/data slot referenced
-        //unsigned short currslot;
-        //unsigned short currslot_static;
         short currslot;
         short currslot_static;
 
@@ -1615,7 +1600,7 @@ public:
 
         /// Default-Constructor of a mutable iterator
         inline hybrid_iterator()
-          : currnode(NULL), currnode_static_compressed(NULL), currnode_static(NULL), currslot(0), currslot_static(0), currtree(0)
+          : currnode(NULL), currnode_static_compressed(NULL), currslot(0), currslot_static(0), currtree(0)
         { }
 
         /// Initializing-Constructor of a mutable iterator
@@ -1623,27 +1608,17 @@ public:
           : currnode(l), currslot(s), currnode_static_compressed(l_static_compressed), currslot_static(s_static), currtree(ctree)
         { 
 	  if (l_static_compressed != NULL) {
-	    str = new std::string();
-	    snappy::Uncompress(l_static_compressed->data, l_static_compressed->size, str);
-	    currnode_static = reinterpret_cast<const leaf_node*>(str->data());
-	  }
-	  else {
-	    currnode_static = NULL;
-	    str = NULL;
+	    std::string str;
+	    snappy::Uncompress(l_static_compressed->data, l_static_compressed->size, &str);
+	    memcpy(&currnode_static, str.data(), str.size());
 	  }
 	}
 
-	inline void clear()
-	{
-	  if (str) {
-	    delete str;
-	  }
+        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::compressed_node* l_static_compressed, const typename btree::leaf_node* l_static, short s_static, unsigned short ctree)
+          : currnode(l), currslot(s), currnode_static_compressed(l_static_compressed), currslot_static(s_static), currtree(ctree)
+        { 
+	  memcpy(&currnode_static, l_static, sizeof(leaf_node));
 	}
-
-        /// Copy-constructor from a reverse iterator
-        //inline iterator(const reverse_iterator& it) // NOLINT
-          //    : currnode(it.currnode), currslot(it.currslot)
-        //{ }
 
         inline leaf_node *get_currnode() {
           return currnode;
@@ -1653,8 +1628,8 @@ public:
           return currnode_static_compressed;
         }
 
-        inline const leaf_node *get_currnode_static() {
-          return currnode_static;
+        inline leaf_node *get_currnode_static() {
+          return &currnode_static;
         }
 
         inline short get_currslot() {
@@ -1667,18 +1642,18 @@ public:
 
 	inline bool isBegin() {
 	  if (currnode == NULL)
-	    return (currslot_static == -1);
-	  if (currnode_static == NULL)
-	    return (currslot == -1);
-	  return (currslot == -1) && (currslot_static == -1);
+	    return (currnode_static_compressed->prevleaf == NULL) && (currslot_static == -1);
+	  if (currnode_static_compressed == NULL)
+	    return (currnode->prevleaf == NULL) && (currslot == -1);
+	  return (currnode->prevleaf == NULL) && (currslot == -1) && (currnode_static_compressed->prevleaf == NULL) && (currslot_static == -1);
 	}
 
 	inline bool isEnd() {
 	  if (currnode == NULL)
-	    return (currslot_static == currnode_static->slotuse);
-	  if (currnode_static == NULL)
-	    return (currslot == currnode->slotuse);
-	  return (currslot == currnode->slotuse) && (currslot_static == currnode_static->slotuse);
+	    return (currnode_static_compressed->nextleaf == NULL) && (currslot_static == currnode_static.slotuse);
+	  if (currnode_static_compressed == NULL)
+	    return (currnode->nextleaf == NULL) && (currslot == currnode->slotuse);
+	  return (currnode->nextleaf == NULL) && (currslot == currnode->slotuse) && (currnode_static_compressed->nextleaf == NULL) && (currslot_static == currnode_static.slotuse);
 	}
 
         /// Dereference the iterator, this is not a value_type& because key and
@@ -1702,7 +1677,7 @@ public:
         inline const key_type & key() const
         {
           if (currtree == 1) {
-            return currnode_static->slotkey[currslot_static];
+            return currnode_static.slotkey[currslot_static];
           }
           return currnode->slotkey[currslot];
         }
@@ -1711,21 +1686,17 @@ public:
         inline const data_type & data() const
         {
           if (currtree == 1) {
-            return currnode_static->slotdata[used_as_set ? 0 : currslot_static];
+            return currnode_static.slotdata[used_as_set ? 0 : currslot_static];
           }
           return currnode->slotdata[used_as_set ? 0 : currslot];
         }
 
-        /// Prefix++ advance the iterator to the next slot
-        inline hybrid_iterator& operator ++ ()
-        {
-          if ((currslot == -1) && currtree != 0)
-            currslot++;
-
-          if ((currslot_static == -1) && currtree != 1)
-            currslot_static++;
-
-          if (currtree == 0) {
+	inline void moveToNext() {
+	  if (isBegin()) {
+	    currslot++;
+	    currslot_static++;
+	  }
+          else if (currtree == 0) {
             if (currslot + 1 < currnode->slotuse) {
               ++currslot;
             }
@@ -1739,115 +1710,44 @@ public:
             }
           }
           else if (currtree == 1) {
-            if (currslot_static + 1 < currnode_static->slotuse) {
-              ++currslot_static;
-            }
-            else if (currnode_static_compressed->nextleaf != NULL) {
-              currnode_static_compressed = currnode_static_compressed->nextleaf;
-	      snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, str);
-	      currnode_static = reinterpret_cast<const leaf_node*>(str->data());
-              currslot_static = 0;
-            }
-            else {
-              // this is end()
-              currslot_static = currnode_static->slotuse;
-            }
+	    do {
+	      if (currslot_static + 1 < currnode_static.slotuse) {
+		++currslot_static;
+	      }
+	      else if (currnode_static_compressed->nextleaf != NULL) {
+		currnode_static_compressed = currnode_static_compressed->nextleaf;
+		std::string str;
+		snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, &str);
+		memcpy(&currnode_static, str.data(), str.size());
+		currslot_static = 0;
+	      }
+	      else {
+		// this is end()
+		currslot_static = currnode_static.slotuse;
+	      }
+	    } while (!isEnd() && (currnode_static.slotdata[currslot_static] == 0));
           }
 
-          if (currnode == NULL) {
+          if ((currnode == NULL) || (currslot == currnode->slotuse)) {
             currtree = 1;
           }
-          else if (currnode_static == NULL) {
+          else if ((currnode_static_compressed == NULL) || (currslot_static == currnode_static.slotuse)) {
             currtree = 0;
           }
-          else if (currslot == currnode->slotuse) {
+          else if (key_compare()(currnode_static.slotkey[currslot_static], currnode->slotkey[currslot])) {
             currtree = 1;
-          }
-          else if (currslot_static == currnode_static->slotuse) {
-            currtree = 0;
-          }
-          else if (!key_compare()(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
-            currtree = 0;
           }
           else {
-            currtree = 1;
-          }
-
-          return *this;
-        }
-
-        /// Postfix++ advance the iterator to the next slot
-        inline hybrid_iterator operator ++ (int)
-        {
-          hybrid_iterator tmp = *this;   // copy ourselves
-
-          if ((currslot == -1) && currtree != 0)
-            currslot++;
-
-          if ((currslot_static == -1) && currtree != 1)
-            currslot_static++;
-
-          if (currtree == 0) {
-            if (currslot + 1 < currnode->slotuse) {
-              ++currslot;
-            }
-            else if (currnode->nextleaf != NULL) {
-              currnode = currnode->nextleaf;
-              currslot = 0;
-            }
-            else {
-              // this is end()
-              currslot = currnode->slotuse;
-            }
-          }
-          else if (currtree == 1) {
-            if (currslot_static + 1 < currnode_static->slotuse) {
-              ++currslot_static;
-            }
-            else if (currnode_static_compressed->nextleaf != NULL) {
-              currnode_static_compressed = currnode_static_compressed->nextleaf;
-	      snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, str);
-	      currnode_static = reinterpret_cast<const leaf_node*>(str->data());
-              currslot_static = 0;
-            }
-            else {
-              // this is end()
-              currslot_static = currnode_static->slotuse;
-            }
-          }
-
-          if (currnode == NULL) {
-            currtree = 1;
-          }
-          else if (currnode_static == NULL) {
             currtree = 0;
           }
-          else if (currslot == currnode->slotuse) {
-            currtree = 1;
-          }
-          else if (currslot_static == currnode_static->slotuse) {
-            currtree = 0;
-          }
-          else if (!key_compare()(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
-            currtree = 0;
-          }
-          else {
-            currtree = 1;
-          }
+	}
 
-          return tmp;
-        }
-
-        /// Prefix-- backstep the iterator to the last slot
-        inline hybrid_iterator& operator -- ()
-        {
-          if (currnode && (currslot == currnode->slotuse) && currtree != 0)
-            currslot--;
-
-          if (currnode_static && (currslot_static == currnode_static->slotuse) && currtree != 1)
-            currslot_static--;
-
-          if (currtree == 0){
+	inline void moveToPrev() {
+	  if (isEnd()) {
+	    currslot--;
+	    currslot_static--;
+	  }
+          else if (currtree == 0){
             if (currslot > 0) {
               --currslot;
             }
@@ -1861,115 +1761,79 @@ public:
             }
           }
           else if (currtree == 1){
-            if (currslot_static > 0) {
-              --currslot_static;
-            }
-            else if (currnode_static_compressed->prevleaf != NULL) {
-              currnode_static_compressed = currnode_static_compressed->prevleaf;
-	      snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, str);
-	      currnode_static = reinterpret_cast<const leaf_node*>(str->data());
-              currslot_static = currnode_static->slotuse - 1;
-            }
-            else {
-              // this is begin()
-              currslot_static = -1;
-            }
+	    do {
+	      if (currslot_static > 0) {
+		--currslot_static;
+	      }
+	      else if (currnode_static_compressed->prevleaf != NULL) {
+		currnode_static_compressed = currnode_static_compressed->prevleaf;
+		std::string str;
+		snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, &str);
+		memcpy(&currnode_static, str.data(), str.size());
+		currslot_static = currnode_static.slotuse - 1;
+	      }
+	      else {
+		// this is begin()
+		currslot_static = -1;
+	      }
+	    } while (!isBegin() && (currnode_static.slotdata[currslot_static] == (data_type)0));
           }
 
-          if (currnode == NULL) {
+          if ((currnode == NULL) || ((currnode->prevleaf == NULL) && (currslot == -1))) {
             currtree = 1;
           }
-          else if (currnode_static == NULL) {
+          else if ((currnode_static_compressed == NULL) || ((currnode_static_compressed->prevleaf == NULL) && (currslot_static == -1))) {
             currtree = 0;
           }
-          else if ((currnode->prevleaf == NULL) && (currslot == -1)) {
-            currtree = 1;
-          }
-          else if ((currnode_static->prevleaf == NULL) && (currslot_static == -1)) {
+          else if (key_compare()(currnode_static.slotkey[currslot_static], currnode->slotkey[currslot])) {
             currtree = 0;
-          }
-          else if (!key_compare()(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
-            currtree = 1;
           }
           else {
-            currtree = 0;
+            currtree = 1;
           }
+	}
 
+        /// Prefix++ advance the iterator to the next slot
+        inline hybrid_iterator& operator ++ ()
+        {
+	  moveToNext();
+          return *this;
+        }
+
+        /// Postfix++ advance the iterator to the next slot
+        inline hybrid_iterator operator ++ (int)
+        {
+          hybrid_iterator tmp = *this;   // copy ourselves
+	  moveToNext();
+          return tmp;
+        }
+
+        /// Prefix-- backstep the iterator to the last slot
+        inline hybrid_iterator& operator -- ()
+        {
+	  moveToPrev();
           return *this;
         }
 
         /// Postfix-- backstep the iterator to the last slot
         inline hybrid_iterator operator -- (int)
         {
-
-          //std::cout << "\ndynamic key = " << currnode->slotkey[currslot];
-          //std::cout << "\ndynamic slot = " << currslot;
-          //std::cout << "\nstatic key = " << currnode_static->slotkey[currslot_static];
-          //std::cout << "\nstatic slot = " << currslot_static;
-          //std::cout << "\n";
-
           hybrid_iterator tmp = *this;   // copy ourselves
-
-          if (currnode && (currslot == currnode->slotuse) && currtree != 0)
-            currslot--;
-
-          if (currnode_static && (currslot_static == currnode_static->slotuse) && currtree != 1)
-            currslot_static--;
-
-          if (currtree == 0) {
-            if (currslot > 0) {
-              --currslot;
-            }
-            else if (currnode->prevleaf != NULL) {
-              currnode = currnode->prevleaf;
-              currslot = currnode->slotuse - 1;
-            }
-            else {
-              // this is begin()
-              currslot = -1;
-            }
-          }
-          else if (currtree == 1) {
-            if (currslot_static > 0) {
-              --currslot_static;
-            }
-            else if (currnode_static_compressed->prevleaf != NULL) {
-              currnode_static_compressed = currnode_static_compressed->prevleaf;
-	      snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, str);
-	      currnode_static = reinterpret_cast<const leaf_node*>(str->data());
-              currslot_static = currnode_static->slotuse - 1;
-            }
-            else {
-              // this is begin()
-              currslot_static = -1;
-            }
-          }
-
-          if (currnode == NULL) {
-            currtree = 1;
-          }
-          else if (currnode_static == NULL) {
-            currtree = 0;
-          }
-          else if ((currnode->prevleaf == NULL) && (currslot == -1)) {
-            currtree = 1;
-          }
-          else if ((currnode_static->prevleaf == NULL) && (currslot_static == -1)) {
-            currtree = 0;
-          }
-          else if (!key_compare()(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
-            currtree = 1;
-          }
-          else {
-            currtree = 0;
-          }
-
+	  moveToPrev();
           return tmp;
         }
 
         /// Equality of iterators
         inline bool operator == (const hybrid_iterator& x) const
         {
+	  if (currnode == NULL) {
+	    (x.currnode_static_compressed == currnode_static_compressed) && (x.currslot_static == currslot_static) && (x.currtree == currtree);
+	  }
+
+	  if (currnode_static_compressed == NULL) {
+	    (x.currnode == currnode) && (x.currslot == currslot) && (x.currtree == currtree);
+	  }
+
           if (currnode && (currslot == currnode->slotuse) && currnode_static_compressed && (currslot_static == currnode_static->slotuse)) {
             return (x.currnode == currnode) && (x.currslot == currslot) && (x.currnode_static_compressed == currnode_static_compressed) && (x.currslot_static == currslot_static);
           }
@@ -1982,6 +1846,14 @@ public:
         /// Inequality of iterators
         inline bool operator != (const hybrid_iterator& x) const
         {
+	  if (currnode == NULL) {
+	    (x.currnode_static_compressed != currnode_static_compressed) || (x.currslot_static != currslot_static) || (x.currtree != currtree);
+	  }
+
+	  if (currnode_static_compressed == NULL) {
+	    (x.currnode != currnode) || (x.currslot != currslot) || (x.currtree != currtree);
+	  }
+
           if (currnode && (currslot == currnode->slotuse) && currnode_static_compressed && (currslot_static == currnode_static->slotuse)) {
             return (x.currnode != currnode) || (x.currslot != currslot) || (x.currnode_static_compressed != currnode_static_compressed) || (x.currslot_static != currslot_static);
           }
@@ -2099,6 +1971,12 @@ public:
       inner_static_size = 0;
       compressed_size = 0;
 
+      leaf_dealloc_size = 0;
+      leaf_static_dealloc_size = 0;
+      inner_dealloc_size = 0;
+      inner_static_dealloc_size = 0;
+      compressed_dealloc_size = 0;
+
     }
 
     /// Constructor initializing an empty B+ tree with a special key
@@ -2121,6 +1999,12 @@ public:
       inner_size = 0;
       inner_static_size = 0;
       compressed_size = 0;
+
+      leaf_dealloc_size = 0;
+      leaf_static_dealloc_size = 0;
+      inner_dealloc_size = 0;
+      inner_static_dealloc_size = 0;
+      compressed_dealloc_size = 0;
 
     }
 
@@ -2145,6 +2029,12 @@ public:
       inner_size = 0;
       inner_static_size = 0;
       compressed_size = 0;
+
+      leaf_dealloc_size = 0;
+      leaf_static_dealloc_size = 0;
+      inner_dealloc_size = 0;
+      inner_static_dealloc_size = 0;
+      compressed_dealloc_size = 0;
 
       insert(first, last);
     }
@@ -2171,6 +2061,12 @@ public:
       inner_size = 0;
       inner_static_size = 0;
       compressed_size = 0;
+
+      leaf_dealloc_size = 0;
+      leaf_static_dealloc_size = 0;
+      inner_dealloc_size = 0;
+      inner_static_dealloc_size = 0;
+      compressed_dealloc_size = 0;
 
       insert(first, last);
     }
@@ -2303,7 +2199,6 @@ private:
     /// Allocate and initialize a leaf node
     inline leaf_node * allocate_leaf()
     {
-      //std::cout << "allocate leaf\n";
         leaf_node* n = new (leaf_node_allocator().allocate(1))
                        leaf_node();
 	leaf_size += sizeof(leaf_node);
@@ -2314,7 +2209,6 @@ private:
     /// Allocate and initialize an inner node
     inline inner_node * allocate_inner(unsigned short level)
     {
-      //std::cout << "allocate inner\n";
         inner_node* n = new (inner_node_allocator().allocate(1))
                         inner_node(level);
 	inner_size += sizeof(inner_node);
@@ -2326,7 +2220,6 @@ private:
     /// Allocate and initialize a static leaf node
     inline leaf_node * allocate_leaf_static()
     {
-      //std::cout << "allocate leaf static\n";
         leaf_node* n = new (leaf_node_allocator().allocate(1))
                        leaf_node();
 	leaf_static_size += sizeof(leaf_node);
@@ -2338,7 +2231,6 @@ private:
     /// Allocate and initialize a static inner node
     inline inner_node * allocate_inner_static(unsigned short level)
     {
-      //std::cout << "allocate inner static\n";
         inner_node* n = new (inner_node_allocator().allocate(1))
                         inner_node(level);
 	inner_static_size += sizeof(inner_node);
@@ -2350,7 +2242,6 @@ private:
     /// Allocate and initialize a static leaf node
     inline compressed_node * allocate_leaf_compressed()
     {
-      //std::cout << "allocate compressed\n";
         compressed_node* n = new (compressed_node_allocator().allocate(1))
                        compressed_node();
 	compressed_size += sizeof(compressed_node);
@@ -2386,7 +2277,6 @@ private:
     /// and value objects
     inline void free_node_static(node* n)
     {
-      //std::cout << "free node static\n";
         if (n->isleafnode()) {
             leaf_node* ln = static_cast<leaf_node*>(n);
             typename leaf_node::alloc_type a(leaf_node_allocator());
@@ -2408,8 +2298,6 @@ private:
     //huanchen-compress
     inline void free_node_compressed(compressed_node* n)
     {
-      //std::cout << "free node compressed\n";
-      //n->data->clear();
       free(n->data);
       typename compressed_node::alloc_type a(compressed_node_allocator());
       a.destroy(n);
@@ -2480,13 +2368,9 @@ public:
     /// Frees all key/data pairs and all INNER nodes of the tree
     void clear_inner()
     {
-        //m_stats = tree_stats();
-        //m_root = NULL;
-        //m_headleaf = m_tailleaf = NULL;
         if ((m_root) && (!m_root->isleafnode()))
         {
             clear_inner_recursive(m_root);
-	    //std::cout << "inner: ";
             free_node(m_root);
         }
 
@@ -2500,19 +2384,14 @@ public:
     /// Frees all key/data pairs and all INNER nodes of the tree
     void clear_inner_static()
     {
-        //m_stats_static = tree_stats();
-        //m_root_static = NULL;
         if ((m_root_static) && (!m_root_static->isleafnode()))
         {
             clear_inner_recursive_static(m_root_static);
-	    //std::cout << "static inner: ";
             free_node_static(m_root_static);
-
-            //m_headleaf_static = m_tailleaf_static = NULL;
         }
 
 	m_stats_static = tree_stats();
-        //BTREE_ASSERT(m_stats_static.itemcount == 0);
+        BTREE_ASSERT(m_stats_static.itemcount == 0);
     }
 
 private:
@@ -2632,32 +2511,12 @@ public:
     }
 
     //huanchen-compress
-
     inline static_iterator static_begin()
     {
         return static_iterator(m_headleaf_static, 0);
     }
 
     inline hybrid_iterator hybrid_begin()
-    {
-      if (m_headleaf && m_headleaf_static) {
-	std::string str;
-	snappy::Uncompress(m_headleaf_static->data, m_headleaf_static->size, &str);
-	const leaf_node *headleaf_static = reinterpret_cast<const leaf_node*>(str.data());
-        if (key_lessequal(m_headleaf->slotkey[0], headleaf_static->slotkey[0]))
-          return hybrid_iterator(m_headleaf, 0, m_headleaf_static, 0, 0);
-        else
-          return hybrid_iterator(m_headleaf, 0, m_headleaf_static, 0, 1);
-      }
-      else if (m_headleaf)
-        return hybrid_iterator(m_headleaf, 0, m_headleaf_static, 0, 0);
-      else if (m_headleaf_static) {
-        return hybrid_iterator(m_headleaf, 0, m_headleaf_static, 0, 1);
-      }
-      return hybrid_iterator(m_headleaf, 0, m_headleaf_static, 0, 0);
-    }
-
-    inline hybrid_iterator hybrid_start()
     {
       return hybrid_iterator(m_headleaf, -1, m_headleaf_static, -1, 0);
     }
@@ -2670,7 +2529,6 @@ public:
     }
 
     //huanchen-compress
-
     inline static_iterator static_end()
     {
         return static_iterator(m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0);
@@ -2681,24 +2539,6 @@ public:
         return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
     }
 
-    inline hybrid_iterator hybrid_last()
-    {
-      if (m_tailleaf && m_tailleaf_static) {
-	std::string str;
-	snappy::Uncompress(m_tailleaf_static->data, m_tailleaf_static->size, &str);
-	const leaf_node *tailleaf_static = reinterpret_cast<const leaf_node*>(str.data());
-        if (key_lessequal(m_tailleaf->slotkey[m_tailleaf->slotuse - 1], tailleaf_static->slotkey[tailleaf_static->slotuse - 1]))
-          return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse - 1 : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse - 1 : 0, 1);
-        else
-          return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse - 1 : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse - 1 : 0, 0);
-      }
-      else if (m_tailleaf)
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse - 1 : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse - 1 : 0, 0);
-      else if (m_tailleaf_static)
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse - 1 : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse - 1 : 0, 1);
-      return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse - 1 : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse - 1 : 0, 0);
-    }
-
     /// Constructs a read-only constant iterator that points to the first slot
     /// in the first leaf of the B+ tree.
     inline const_iterator begin() const
@@ -2706,13 +2546,6 @@ public:
         return const_iterator(m_headleaf, 0);
     }
 
-    //huanchen-compress
-/*
-    inline const_iterator static_begin() const
-    {
-        return const_iterator(m_headleaf_static, 0);
-    }
-*/
     /// Constructs a read-only constant iterator that points to the first
     /// invalid slot in the last leaf of the B+ tree.
     inline const_iterator end() const
@@ -2720,13 +2553,6 @@ public:
         return const_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0);
     }
 
-    //huanchen-compress
-/*
-    inline const_iterator static_end() const
-    {
-        return const_iterator(m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0);
-    }
-*/
     /// Constructs a read/data-write reverse iterator that points to the first
     /// invalid slot in the last leaf of the B+ tree. Uses STL magic.
     inline reverse_iterator rbegin()
@@ -2734,13 +2560,6 @@ public:
         return reverse_iterator(end());
     }
 
-    //huanchen-compress
-/*
-    inline reverse_iterator static_rbegin()
-    {
-        return reverse_iterator(static_end());
-    }
-*/
     /// Constructs a read/data-write reverse iterator that points to the first
     /// slot in the first leaf of the B+ tree. Uses STL magic.
     inline reverse_iterator rend()
@@ -2748,13 +2567,6 @@ public:
         return reverse_iterator(begin());
     }
 
-    //huanchen-compress
-/*
-    inline reverse_iterator static_rend()
-    {
-        return reverse_iterator(static_begin());
-    }
-*/
     /// Constructs a read-only reverse iterator that points to the first
     /// invalid slot in the last leaf of the B+ tree. Uses STL magic.
     inline const_reverse_iterator rbegin() const
@@ -2762,13 +2574,6 @@ public:
         return const_reverse_iterator(end());
     }
 
-    //huanchen-compress
-/*
-    inline const_reverse_iterator static_rbegin() const
-    {
-        return const_reverse_iterator(static_end());
-    }
-*/
     /// Constructs a read-only reverse iterator that points to the first slot
     /// in the first leaf of the B+ tree. Uses STL magic.
     inline const_reverse_iterator rend() const
@@ -2776,13 +2581,6 @@ public:
         return const_reverse_iterator(begin());
     }
 
-    //huanchen-compress
-/*
-    inline const_reverse_iterator static_rend() const
-    {
-        return const_reverse_iterator(static_begin());
-    }
-*/
 private:
     // *** B+ Tree Node Binary Search Functions
 
@@ -3047,12 +2845,17 @@ public:
 	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
 
         int slot = find_lower(leaf, key);
-        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]));
+        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != (data_type)0));
     }
 
     bool exists_hybrid(const key_type& key) const
     {
-      return exist(key) || exist_static(key);
+      if (USE_BLOOM_FILTER) {
+	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
+	  return exists_static(key);
+	}
+      }
+      return exists(key) || exists_static(key);
     }
 
     /// Tries to locate a key in the B+ tree and returns an iterator to the
@@ -3078,18 +2881,15 @@ public:
     }
 
     //huanchen-compress
-    static_iterator find_static(const key_type& key)
+    hybrid_iterator find_static(const key_type& key)
     {
         node* n = m_root_static;
-        if (!n) return static_end();
+        if (!n) return hybrid_end();
 
         while (!n->isleafnode())
         {
             const inner_node* inner = static_cast<const inner_node*>(n);
             int slot = find_lower(inner, key);
-
-	    //print_node(std::cout, inner);
-
             n = inner->childid[slot];
         }
 
@@ -3097,41 +2897,26 @@ public:
 	std::string str;
 	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
 	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
-	//std::string *str = new std::string();
-	//snappy::Uncompress(leaf_compressed->data->data(), leaf_compressed->data->size(), str);
-	//const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str->data());
-
-	//print_node(std::cout, leaf);
 
         int slot = find_lower(leaf, key);
 
-	//std::cout << "slot = " << slot << "\n";
-        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]))
-               ? static_iterator(leaf_compressed, slot) : static_end();
-	//bool isNotEnd = (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]));
-	//delete str;
-	//return (isNotEnd ? static_iterator(leaf_compressed, slot) : static_end());
+        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != 0))
+	? hybrid_iterator(NULL, 0, leaf_compressed, leaf, slot, 1) : hybrid_end();
     }
 
     hybrid_iterator find_hybrid(const key_type& key)
     {
       iterator key_iter;
-      static_iterator static_key_iter;
-
       //bloom filter
       if (USE_BLOOM_FILTER) {
 	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
-	  static_key_iter = find_static(key);
-	  static_key_iter.clear();
-	  return hybrid_iterator(NULL, 0, static_key_iter.get_currnode_compressed(), static_key_iter.get_currslot(), 1);
+	  return find_static(key);
 	}
       }
 
       key_iter = find(key);
       if (key_iter == end()) {
-        static_key_iter = find_static(key);
-	static_key_iter.clear();
-	return hybrid_iterator(NULL, 0, static_key_iter.get_currnode_compressed(), static_key_iter.get_currslot(), 1);
+        return find_static(key);
       }
       return hybrid_iterator(key_iter.get_currnode(), key_iter.get_currslot(), NULL, 0, 0);
     }
@@ -3158,48 +2943,6 @@ public:
                ? const_iterator(leaf, slot) : end();
     }
 
-    //huanchen-compress
-/*
-    const_iterator find_static(const key_type& key) const
-    {
-        const node* n = m_root_static;
-        if (!n) return end();
-
-        while (!n->isleafnode())
-        {
-            const inner_node* inner = static_cast<const inner_node*>(n);
-
-	    //print_node(std::cout, inner);
-
-            int slot = find_lower(inner, key);
-
-            n = inner->childid[slot];
-        }
-
-	compressed_node *leaf_compressed = static_cast<compressed_node*>(n);
-	std::string str;
-	snappy::Uncompress(leaf_compressed->data->data(), leaf_compressed->data->size(), &str);
-	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
-
-        int slot = find_lower(leaf, key);
-
-	//print_node(std::cout, leaf);
-	//std::cout << "slot = " << slot << "\n";
-
-        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]))
-               ? const_iterator(leaf, slot) : end();
-    }
-
-    const_iterator find_hybrid(const key_type& key) const
-    {
-      const_iterator key_iter = find(key);
-      if (key_iter == end()) {
-        const_iterator static_key_iter = find_static(key);
-        return static_key_iter;
-      }
-      return key_iter;
-    }
-*/
     /// Tries to locate a key in the B+ tree and returns the number of
     /// identical key entries found.
     size_type count(const key_type& key) const
@@ -3317,41 +3060,33 @@ public:
 	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
 	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
 
-        //leaf_node* leaf = static_cast<leaf_node*>(n);
-
         int slot = find_lower(leaf, key);
-        return static_iterator(leaf_compressed, slot);
+	static_iterator iter = static_iterator(leaf_compressed, slot);
+	if (!iter.isEnd()) {
+	  if (leaf->slotdata[slot] == 0)
+	    iter++;
+	}
+        return iter;
     }
 
     hybrid_iterator lower_bound_hybrid(const key_type& key)
     {
       iterator iter = lower_bound(key);
       static_iterator iter_static = lower_bound_static(key);
-      static_iterator iter_static_end = static_end();
-      if ((iter == end()) && (iter_static == iter_static_end)) {
-	iter_static.clear();
-	iter_static_end.clear();
+      if ((iter == end()) && iter_static.isEnd()) {
         return hybrid_end();
       }
       else if (iter == end()) {
-	iter_static.clear();
-	iter_static_end.clear();
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currslot(), 1);
+        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
       }
-      else if (iter_static == iter_static_end) {
-	iter_static.clear();
-	iter_static_end.clear();
+      else if (iter_static.isEnd()) {
         return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
       }
       else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode()->slotkey[iter_static.get_currslot()])) {
-	iter_static.clear();
-	iter_static_end.clear();
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currslot(), 0);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0);
       }
       else {
-	iter_static.clear();
-	iter_static_end.clear();
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currslot(), 1);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
       }
     }
 
@@ -3377,27 +3112,6 @@ public:
         return const_iterator(leaf, slot);
     }
 
-    //huanchen-compress
-/*
-    const_iterator lower_bound_static(const key_type& key) const
-    {
-        const node* n = m_root_static;
-        if (!n) return end();
-
-        while (!n->isleafnode())
-        {
-            const inner_node* inner = static_cast<const inner_node*>(n);
-            int slot = find_lower(inner, key);
-
-            n = inner->childid[slot];
-        }
-
-        const leaf_node* leaf = static_cast<const leaf_node*>(n);
-
-        int slot = find_lower(leaf, key);
-        return const_iterator(leaf, slot);
-    }
-*/
     /// Searches the B+ tree and returns an iterator to the first pair
     /// greater than key, or end() if all keys are smaller or equal.
     iterator upper_bound(const key_type& key)
@@ -3419,16 +3133,16 @@ public:
         return iterator(leaf, slot);
     }
 
-    //huanchen-compress
-    iterator upper_bound_static(const key_type& key)
+    //huanchen-comrpess
+    static_iterator upper_bound_static(const key_type& key)
     {
         node* n = m_root_static;
-        if (!n) return end();
+        if (!n) return static_end();
 
         while (!n->isleafnode())
         {
             const inner_node* inner = static_cast<const inner_node*>(n);
-            int slot = find_upper(inner, key);
+            int slot = find_lower(inner, key);
 
             n = inner->childid[slot];
         }
@@ -3438,10 +3152,34 @@ public:
 	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
 	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
 
-        //leaf_node* leaf = static_cast<leaf_node*>(n);
-
         int slot = find_upper(leaf, key);
-        return iterator(leaf_compressed, slot);
+	static_iterator iter = static_iterator(leaf_compressed, slot);
+	if (!iter.isEnd()) {
+	  if (leaf->slotdata[slot] == 0)
+	    iter++;
+	}
+        return iter;
+    }
+
+    hybrid_iterator upper_bound_hybrid(const key_type& key)
+    {
+      iterator iter = upper_bound(key);
+      static_iterator iter_static = upper_bound_static(key);
+      if ((iter == end()) && iter_static.isEnd()) {
+        return hybrid_end();
+      }
+      else if (iter == end()) {
+        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
+      }
+      else if (iter_static.isEnd()) {
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
+      }
+      else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode()->slotkey[iter_static.get_currslot()])) {
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0);
+      }
+      else {
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
+      }
     }
 
     /// Searches the B+ tree and returns a constant iterator to the
@@ -3466,27 +3204,6 @@ public:
         return const_iterator(leaf, slot);
     }
 
-    //huanchen-comrpess
-/*
-    const_iterator upper_bound_static(const key_type& key) const
-    {
-        const node* n = m_root_static;
-        if (!n) return end();
-
-        while (!n->isleafnode())
-        {
-            const inner_node* inner = static_cast<const inner_node*>(n);
-            int slot = find_upper(inner, key);
-
-            n = inner->childid[slot];
-        }
-
-        const leaf_node* leaf = static_cast<const leaf_node*>(n);
-
-        int slot = find_upper(leaf, key);
-        return const_iterator(leaf, slot);
-    }
-*/
     /// Searches the B+ tree and returns both lower_bound() and upper_bound().
     inline std::pair<iterator, iterator> equal_range(const key_type& key)
     {
@@ -3505,13 +3222,6 @@ public:
         return std::pair<const_iterator, const_iterator>(lower_bound(key), upper_bound(key));
     }
 
-    //huanchen-comrpess
-/*
-    inline std::pair<const_iterator, const_iterator> equal_range_static(const key_type& key) const
-    {
-        return std::pair<const_iterator, const_iterator>(lower_bound_static(key), upper_bound_static(key));
-    }
-*/
 public:
     // *** B+ Tree Object Comparison Functions
 
@@ -4184,6 +3894,40 @@ public:
         if (selfverify) verify();
 
         return !result.has(btree_not_found);
+    }
+
+    //huanchen
+    bool erase_one_static(const key_type& key) {
+      hybrid_iterator iter = find_static(key);
+      if (iter.isEnd()) {
+	return false;
+      }
+      iter.get_currnode_static()->slotdata[iter.get_currslot_static()] = (data_type)0;
+      
+      std::string str;
+      snappy::Compress(reinterpret_cast<const char*>(iter.get_currnode_static()), sizeof(leaf_node), &str);
+      m_compressed_data_size -= iter.get_currnode_static_compressed()->size;
+      iter.get_currnode_static_compressed()->size = str.size();
+      free(iter.get_currnode_static_compressed()->data);
+      iter.get_currnode_static_compressed()->data = (char*)malloc(str.size());
+      memcpy(iter.get_currnode_static_compressed()->data, str.data(), str.size());
+      m_compressed_data_size += iter.get_currnode_static_compressed()->size;
+
+      return true;
+    }
+
+    bool erase_one_hybrid(const key_type& key) {
+      if (USE_BLOOM_FILTER) {
+	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
+	  return erase_one_static(key);
+	}
+      }
+
+      bool erase_success = erase_one(key);
+      if (!erase_success) {
+	erase_success = erase_one_static(key);
+      }
+      return erase_success;
     }
 
     /// Erases all the key/data pairs associated with the given key. This is
@@ -5133,15 +4877,6 @@ public:
         }
     }
 
-    //huanchen
-/*
-    void print_static(std::ostream& os) const
-    {
-        if (m_root_static) {
-            print_node(os, m_root_static, 0, true);
-        }
-    }
-*/
     /// Print out only the leaves via the double linked list.
     void print_leaves(std::ostream& os) const
     {
@@ -5157,44 +4892,6 @@ public:
         }
     }
 
-    //huanchen
-/*
-    void print_leaves_static(std::ostream& os) const
-    {
-        os << "leaves:" << std::endl;
-
-        const leaf_node* n = m_headleaf_static;
-
-        while (n)
-        {
-            os << "  " << n << std::endl;
-
-            n = n->nextleaf;
-        }
-    }
-
-    /// Print out only the leaves (detailed) via the double linked list.
-    void print_leaves_detailed(std::ostream& os) const
-    {
-        const leaf_node* n = m_headleaf;
-        while (n)
-        {
-            print_node(os, n);
-            n = n->nextleaf;
-        }
-    }
-
-    //huanchen
-    void print_leaves_detailed_static(std::ostream& os) const
-    {
-        const leaf_node* n = m_headleaf_static;
-        while (n)
-        {
-            print_node(os, n);
-            n = n->nextleaf;
-        }
-    }
-*/
 private:
     /// Recursively descend down the tree and print out nodes.
     static void print_node(std::ostream& os, const node* node, unsigned int depth = 0, bool recursive = false)
@@ -5611,15 +5308,6 @@ private:
     //huanchen===================================================================================
 public:
     void merge() {
-
-      //std::cout << "MERGE BEGIN=================================================\n";
-      /*
-      std::cout << "dynamic item count = " << m_stats.itemcount << "\n";
-      std::cout << "static item count = " << m_stats_static.itemcount << "\n";
-      std::cout << "*******************************\n";
-      print(std::cout);
-      print_static(std::cout);
-      */
       leaf_node *ln = m_headleaf; //dynamic leaf cursor
       compressed_node *ln_static = m_headleaf_static; //static leaf cursor
       int curslot = 0; //static leaf slot cursor
@@ -5630,39 +5318,28 @@ public:
       clear_inner();
       clear_inner_static();
       m_compressed_data_size = 0;
-      //m_stats_static = tree_stats();
 
-      //First time compaction
       if (m_root_static == NULL) {
         m_headleaf_static = allocate_leaf_compressed();
         m_headleaf_static->prevleaf = NULL;
-        //m_stats_static.leaves++;
         ln_static = m_headleaf_static;
 	leaf_node *new_ln = allocate_leaf_static();
         while (ln != NULL) {
           for (int slot = 0; slot < ln->slotuse; slot++) {
             if (curslot >= leafslotmax) {
-	      //print_node(std::cout, new_ln);
-
-	      std::string str_new;
-	      //snappy::Compress(reinterpret_cast<const char*>(new_ln), 2 * sizeof(unsigned short) + 2 * sizeof(leaf_node*) + leafslotmax * (sizeof(key_type) + sizeof(data_type)), ln_static->data);
-	      snappy::Compress(reinterpret_cast<const char*>(new_ln), sizeof(leaf_node), &str_new);
-	      //std::cout << sizeof(leaf_node) << " " << ln_static->data->size() << "\n";
-	      ln_static->size = str_new.size();
-	      ln_static->data = (char*)malloc(str_new.size());
-	      memcpy(ln_static->data, str_new.data(), str_new.size());
+	      std::string str;
+	      snappy::Compress(reinterpret_cast<const char*>(new_ln), sizeof(leaf_node), &str);
+	      ln_static->size = str.size();
+	      ln_static->data = (char*)malloc(str.size());
+	      memcpy(ln_static->data, str.data(), str.size());
 	      m_compressed_data_size += ln_static->size;
 
-	      //free_node_static(new_ln);
-              //new_ln = allocate_leaf_static();
-
-	      new_ln->slotuse = 0; //test
+	      new_ln->slotuse = 0;
 
 	      compressed_node *new_ln_static = allocate_leaf_compressed();
               ln_static->nextleaf = new_ln_static;
               new_ln_static->prevleaf = ln_static;
               ln_static = new_ln_static;
-              //m_stats_static.leaves++;
               curslot = 0;
               node_count++;
             }
@@ -5678,172 +5355,23 @@ public:
           ln = next_ln;
         } //END while
 
-	//print_node(std::cout, new_ln);
-	std::string str_new;
-	//snappy::Compress(reinterpret_cast<const char*>(new_ln), 2 * sizeof(unsigned short) + 2 * sizeof(leaf_node*) + leafslotmax * (sizeof(key_type) + sizeof(data_type)), ln_static->data);
-	snappy::Compress(reinterpret_cast<const char*>(new_ln), sizeof(leaf_node), &str_new);
-	ln_static->size = str_new.size();
+	std::string str;
+	snappy::Compress(reinterpret_cast<const char*>(new_ln), sizeof(leaf_node), &str);
+	ln_static->size = str.size();
 	ln_static->data = (char*)malloc(ln_static->size);
-	memcpy(ln_static->data, str_new.data(), str_new.size());
+	memcpy(ln_static->data, str.data(), str.size());
 	m_compressed_data_size += ln_static->size;
 
 	free_node_static(new_ln);
 	ln_static->nextleaf = NULL;
-	//m_stats_static.leaves++;
 	curslot = 0;
 	node_count++;
 
         m_tailleaf_static = ln_static;
-
-        if (node_count > 1) {
-          inner_level = 1;
-          in_static = allocate_inner_static(inner_level);
-          //m_stats_static.innernodes++;
-          std::vector<inner_node*> ins;
-          ln_static = m_headleaf_static;
-          curslot = 0;
-          node_count = 1;
-          while (ln_static != NULL) {
-            if (curslot > innerslotmax) {
-	      //print_node(std::cout, in_static);
-
-              ins.push_back(in_static);
-              in_static = allocate_inner_static(inner_level);
-              //m_stats_static.innernodes++;
-              curslot = 0;
-              node_count++;
-            }
-            if (curslot == innerslotmax) {
-              in_static->childid[curslot] = ln_static;
-              curslot++;
-              ln_static = ln_static->nextleaf;
-            }
-            else {
-	      std::string str;
-	      //std::cout << "ln_static->size = " << ln_static->size << "\n";
-	      snappy::Uncompress(ln_static->data, ln_static->size, &str);
-	      const leaf_node *leaf = reinterpret_cast<const leaf_node*>(str.data());
-	      //print_node(std::cout, leaf);
-	      //std::string *str = new std::string();
-	      //snappy::Uncompress(ln_static->data->data(), ln_static->data->size(), str);
-	      //const leaf_node *leaf = reinterpret_cast<const leaf_node*>(str->data());
-
-              in_static->slotuse++;
-              in_static->slotkey[curslot] = leaf->slotkey[ln_static->slotuse - 1];
-              in_static->childid[curslot] = ln_static;
-              curslot++;
-              ln_static = ln_static->nextleaf;
-
-	      //delete str;
-            }
-          } //END while
-
-          //in_static->slotuse--;
-          if (curslot != (innerslotmax + 1)) {
-            in_static->slotuse--;
-          }
-          ins.push_back(in_static);
-	  //print_node(std::cout, in_static);
-
-          while (node_count > 1) {
-            inner_level++;
-            in_static = allocate_inner_static(inner_level);
-            //m_stats_static.innernodes++;
-            std::vector<inner_node*> curins = ins;
-            ins.clear();
-            ins.push_back(in_static);
-            int curnode_id = 0;
-            curslot = 0;
-            node_count = 1;
-
-            while (curnode_id < curins.size()) {
-              if (curslot > innerslotmax) {
-		//print_node(std::cout, in_static);
-                in_static = allocate_inner_static(inner_level);
-                //m_stats_static.innernodes++;
-                ins.push_back(in_static);
-                curslot = 0;
-                node_count++;
-              }
-              node* n = curins[curnode_id];
-              while (!n->isleafnode()) {
-                inner_node *innernode = static_cast<inner_node*>(n);
-                n = innernode->childid[innernode->slotuse];
-              }
-	      compressed_node *leafnode_compressed = static_cast<compressed_node*>(n);
-	      std::string str_n;
-	      snappy::Uncompress(leafnode_compressed->data, leafnode_compressed->size, &str_n);
-              const leaf_node *leafnode = reinterpret_cast<const leaf_node*>(str_n.data());
-	      //std::string *str_n = new std::string();
-	      //snappy::Uncompress(leafnode_compressed->data->data(), leafnode_compressed->data->size(), str_n);
-              //const leaf_node *leafnode = reinterpret_cast<const leaf_node*>(str_n->data());
-
-              if (curslot == innerslotmax) {
-                in_static->childid[curslot] = curins[curnode_id];
-                curslot++;
-                curnode_id++;
-              }
-              else {
-                in_static->slotkey[curslot] = leafnode->slotkey[leafnode->slotuse - 1];
-                in_static->childid[curslot] = curins[curnode_id];
-                in_static->slotuse++;
-                curslot++;
-                curnode_id++;
-              }
-	      //delete str_n;
-            } //END while
-            //in_static->slotuse--;
-            if (curslot != (innerslotmax + 1)) {
-              in_static->slotuse--;
-            }
-          } //END while
-
-          m_root_static = in_static;
-          //print_static(std::cout);
-        } //END if
-        else {
-          m_root_static = ln_static;
-        } //END else
-
-	/*
-	ln_static = m_headleaf_static;
-	while (ln_static != NULL) {
-	  std::string str;
-	  snappy::Uncompress(ln_static->data->data(), ln_static->data->size(), &str);
-	  const leaf_node *leaf = reinterpret_cast<const leaf_node*>(str.data());
-	  print_node(std::cout, leaf);
-	  ln_static = ln_static->nextleaf;
-	}
-	*/
-        //clear_inner();
-        //clear();
-
-        //std::cout << "DYNAMIC**********************************************************\n";
-        //print(std::cout);
-        //std::cout << "STATIC**********************************************************\n";
-        //print_static(std::cout);
-        //std::cout << "STATIC LEAVES**********************************************************\n";
-        //print_leaves_detailed_static(std::cout);
-        //std::cout << "STATIC LEAVES END**********************************************************\n";
       }
       else {
-	/*
-	while (ln_static != NULL) {
-	  std::string str;
-	  snappy::Uncompress(ln_static->data->data(), ln_static->data->size(), &str);
-	  const leaf_node *leaf = reinterpret_cast<const leaf_node*>(str.data());
-	  print_node(std::cout, leaf);
-	  ln_static = ln_static->nextleaf;
-	}
-
-	while (ln_static != NULL) {
-	  std::cout << ln_static << "\n";
-	  ln_static = ln_static->nextleaf;
-	}
-	*/
 	compressed_node *ln_new = allocate_leaf_compressed();
         leaf_node *ln_new_leaf = allocate_leaf_static();
-        //m_stats_static.leaves++;
         ln_new->prevleaf = NULL;
         m_headleaf_static = ln_new;
 
@@ -5863,14 +5391,9 @@ public:
 
 	    ln_static_change = false;
 	  }
-	  //print_node(std::cout, ln);
-	  //std::cout << ln_static << "\n";
-	  //print_node(std::cout, ln_static_leaf);
-          while ((slot < ln->slotuse) && (slot_static < ln_static_leaf->slotuse)) { //t1
+
+          while ((slot < ln->slotuse) && (slot_static < ln_static_leaf->slotuse)) {
             if (slot_new >= leafslotmax) {
-
-	      //print_node(std::cout, ln_new_leaf);
-
 	      std::string str_new;
 	      snappy::Compress(reinterpret_cast<const char*>(ln_new_leaf), sizeof(leaf_node), &str_new);
 	      ln_new->size = str_new.size();
@@ -5878,14 +5401,9 @@ public:
 	      memcpy(ln_new->data, str_new.data(), str_new.size());
 	      m_compressed_data_size += ln_new->size;
 
-
-	      //std::cout << sizeof(leaf_node) << " " << ln_new->data->size() << "\n";
-	      //free_node_static(ln_new_leaf);
-	      //ln_new_leaf = allocate_leaf_static();
-	      ln_new_leaf->slotuse = 0; //test
+	      ln_new_leaf->slotuse = 0;
 
               compressed_node *ln_next = allocate_leaf_compressed();
-              //m_stats_static.leaves++;
               ln_new->nextleaf = ln_next;
               ln_next->prevleaf = ln_new;
               ln_new = ln_next;
@@ -5893,10 +5411,13 @@ public:
               node_count++;
             }
 
-            if (key_equal(ln->slotkey[slot], ln_static_leaf->slotkey[slot_static])) {
+	    if (ln_static_leaf->slotdata[slot_static] == (data_type)0) {
 	      slot_static++;
 	    }
-            if (key_less(ln->slotkey[slot], ln_static_leaf->slotkey[slot_static])) {
+            else if (key_equal(ln->slotkey[slot], ln_static_leaf->slotkey[slot_static])) {
+	      slot_static++;
+	    }
+            else if (key_less(ln->slotkey[slot], ln_static_leaf->slotkey[slot_static])) {
               ln_new_leaf->slotkey[slot_new] = ln->slotkey[slot];
               ln_new_leaf->slotdata[slot_new] = ln->slotdata[slot];
               slot++;
@@ -5932,9 +5453,8 @@ public:
             std::cout << "ERROR\n";
           }
         } //END while
-	//print_node(std::cout, ln_new_leaf);
 
-        if (ln != NULL) {
+	while (ln != NULL) {
           while (slot < ln->slotuse) {
             if (slot_new >= leafslotmax) {
 	      std::string str_new;
@@ -5943,12 +5463,9 @@ public:
 	      ln_new->data = (char*)malloc(str_new.size());
 	      memcpy(ln_new->data, str_new.data(), str_new.size());
 	      m_compressed_data_size += ln_new->size;
-	      //free_node_static(ln_new_leaf);
-	      //ln_new_leaf = allocate_leaf_static();
-	      ln_new_leaf->slotuse = 0; //test
+	      ln_new_leaf->slotuse = 0;
 
               compressed_node *ln_next = allocate_leaf_compressed();
-              //m_stats_static.leaves++;
               ln_new->nextleaf = ln_next;
               ln_next->prevleaf = ln_new;
               ln_new = ln_next;
@@ -5966,8 +5483,13 @@ public:
           leaf_node *ln_temp = ln->nextleaf;
           free_node(ln);
           ln = ln_temp;
+	  slot = 0;
         }
-        else if (ln_static != NULL) {
+
+	while (ln_static != NULL) {
+	  snappy::Uncompress(ln_static->data, ln_static->size, &str_static);
+	  ln_static_leaf = reinterpret_cast<const leaf_node*>(str_static.data());
+
           while (slot_static < ln_static_leaf->slotuse) {
             if (slot_new >= leafslotmax) {
 
@@ -5978,12 +5500,9 @@ public:
 	      memcpy(ln_new->data, str_new.data(), str_new.size());
 	      m_compressed_data_size += ln_new->size;
 
-	      //free_node_static(ln_new_leaf);
-	      //ln_new_leaf = allocate_leaf_static();
-	      ln_new_leaf->slotuse = 0; //test
+	      ln_new_leaf->slotuse = 0;
 
               compressed_node *ln_next = allocate_leaf_compressed();
-              //m_stats_static.leaves++;
               ln_new->nextleaf = ln_next;
               ln_next->prevleaf = ln_new;
               ln_new = ln_next;
@@ -6003,85 +5522,7 @@ public:
           compressed_node *ln_static_temp = ln_static->nextleaf;
           free_node_compressed(ln_static);
           ln_static = ln_static_temp;
-        }
-
-        while (ln != NULL) {
-          for (slot = 0; slot < ln->slotuse; slot++) {
-            if (slot_new >= leafslotmax) {
-
-	      std::string str_new;
-	      snappy::Compress(reinterpret_cast<const char*>(ln_new_leaf), sizeof(leaf_node), &str_new);
-	      ln_new->size = str_new.size();
-	      ln_new->data = (char*)malloc(str_new.size());
-	      memcpy(ln_new->data, str_new.data(), str_new.size());
-	      m_compressed_data_size += ln_new->size;
-
-	      //free_node_static(ln_new_leaf);
-	      //ln_new_leaf = allocate_leaf_static();
-	      ln_new_leaf->slotuse = 0; //test
-
-              compressed_node *ln_next = allocate_leaf_compressed();
-              //m_stats_static.leaves++;
-              ln_new->nextleaf = ln_next;
-              ln_next->prevleaf = ln_new;
-              ln_new = ln_next;
-              slot_new = 0;
-              node_count++;
-            }
-            ln_new_leaf->slotkey[slot_new] = ln->slotkey[slot];
-            ln_new_leaf->slotdata[slot_new] = ln->slotdata[slot];
-            ln_new->slotuse++;
-            ln_new_leaf->slotuse++;
-            slot_new++;
-            m_stats_static.itemcount++;
-          }
-          leaf_node *ln_temp = ln->nextleaf;
-          free_node(ln);
-          ln = ln_temp;
-        }
-
-        while (ln_static != NULL) {
-
-	  //std::string str; //t
-	  //snappy::Uncompress(ln_static->data->data(), ln_static->data->size(), &str);
-	  snappy::Uncompress(ln_static->data, ln_static->size, &str_static); //t
-	  //ln_static_leaf = reinterpret_cast<const leaf_node*>(str.data());
-	  ln_static_leaf = reinterpret_cast<const leaf_node*>(str_static.data()); //t
-
-          for (slot_static = 0; slot_static < ln_static_leaf->slotuse; slot_static++) { //t1
-            if (slot_new >= leafslotmax) {
-
-	      std::string str_new;
-	      snappy::Compress(reinterpret_cast<const char*>(ln_new_leaf), sizeof(leaf_node), &str_new);
-	      ln_new->size = str_new.size();
-	      ln_new->data = (char*)malloc(str_new.size());
-	      memcpy(ln_new->data, str_new.data(), str_new.size());
-	      m_compressed_data_size += ln_new->size;
-
-	      //free_node_static(ln_new_leaf);
-	      //ln_new_leaf = allocate_leaf_static();
-	      ln_new_leaf->slotuse = 0; //test
-
-              compressed_node *ln_next = allocate_leaf_compressed();
-              //m_stats_static.leaves++;
-              ln_new->nextleaf = ln_next;
-              ln_next->prevleaf = ln_new;
-              ln_new = ln_next;
-              slot_new = 0;
-              node_count++;
-            }
-
-            ln_new_leaf->slotkey[slot_new] = ln_static_leaf->slotkey[slot_static];
-            ln_new_leaf->slotdata[slot_new] = ln_static_leaf->slotdata[slot_static];
-
-            ln_new->slotuse++;
-            ln_new_leaf->slotuse++;
-            slot_new++;
-            m_stats_static.itemcount++;
-          }
-          compressed_node *ln_static_temp = ln_static->nextleaf;
-          free_node_compressed(ln_static);
-          ln_static = ln_static_temp;
+	  slot_static = 0;
         }
 
 	std::string str_new;
@@ -6094,143 +5535,97 @@ public:
 	free_node_static(ln_new_leaf);
 	ln_new->nextleaf = NULL;
         m_tailleaf_static = ln_new;
-
-        //print_node(std::cout, m_tailleaf_static);
-
-        if (node_count > 1) {
-          inner_level = 1;
-          in_static = allocate_inner_static(inner_level);
-          //m_stats_static.innernodes++;
-          std::vector<inner_node*> ins;
-          ln_static = m_headleaf_static;
-          curslot = 0;
-          node_count = 1;
-          while (ln_static != NULL) {
-            if (curslot > innerslotmax) {
-              ins.push_back(in_static);
-              in_static = allocate_inner_static(inner_level);
-              //m_stats_static.innernodes++;
-              curslot = 0;
-              node_count++;
-            }
-            if (curslot == innerslotmax) {
-              in_static->childid[curslot] = ln_static;
-              curslot++;
-              ln_static = ln_static->nextleaf;
-            }
-            else {
-	      std::string str;
-	      snappy::Uncompress(ln_static->data, ln_static->size, &str);
-	      const leaf_node *leaf = reinterpret_cast<const leaf_node*>(str.data());
-	      //std::string *str = new std::string();
-	      //snappy::Uncompress(ln_static->data->data(), ln_static->data->size(), str);
-	      //const leaf_node *leaf = reinterpret_cast<const leaf_node*>(str->data());
-
-              in_static->slotuse++;
-              in_static->slotkey[curslot] = leaf->slotkey[ln_static->slotuse - 1];
-              in_static->childid[curslot] = ln_static;
-              curslot++;
-              ln_static = ln_static->nextleaf;
-
-	      //delete str;
-            }
-          } //END while
-          ins.push_back(in_static);
-          //in_static->slotuse--;
-          if (curslot != (innerslotmax + 1)) {
-            in_static->slotuse--;
-          }
-
-          while (node_count > 1) {
-            inner_level++;
-            in_static = allocate_inner_static(inner_level);
-            //m_stats_static.innernodes++;
-            std::vector<inner_node*> curins = ins;
-            ins.clear();
-            ins.push_back(in_static);
-            int curnode_id = 0;
-            curslot = 0;
-            node_count = 1;
-
-            while (curnode_id < curins.size()) {
-              if (curslot > innerslotmax) {
-                in_static = allocate_inner_static(inner_level);
-                //m_stats_static.innernodes++;
-                ins.push_back(in_static);
-                curslot = 0;
-                node_count++;
-              }
-
-              node* n = curins[curnode_id];
-              while (!n->isleafnode()) {
-                //print_node(std::cout, n);
-                inner_node *innernode = static_cast<inner_node*>(n);
-                n = innernode->childid[innernode->slotuse];
-              }
-	      compressed_node *leafnode_compressed = static_cast<compressed_node*>(n);
-	      std::string str_n;
-	      snappy::Uncompress(leafnode_compressed->data, leafnode_compressed->size, &str_n);
-              const leaf_node *leafnode = reinterpret_cast<const leaf_node*>(str_n.data());
-	      //std::string *str_n = new std::string();
-	      //snappy::Uncompress(leafnode_compressed->data->data(), leafnode_compressed->data->size(), str_n);
-              //const leaf_node *leafnode = reinterpret_cast<const leaf_node*>(str_n->data());
-
-              if (curslot == innerslotmax) {
-                in_static->childid[curslot] = curins[curnode_id];
-                curslot++;
-                curnode_id++;
-              }
-              else {
-                in_static->slotkey[curslot] = leafnode->slotkey[leafnode->slotuse - 1];
-                in_static->childid[curslot] = curins[curnode_id];
-                in_static->slotuse++;
-                curslot++;
-                curnode_id++;
-              }
-
-	      //delete str_n;
-            } //END while
-            if (curslot != (innerslotmax + 1)) {
-              in_static->slotuse--;
-            }
-          } //END while
-
-          //clear();
-          //clear_static();
-          //clear_inner();
-          //clear_inner_static();
-          m_root_static = in_static;
-        } //END if
-        else {
-          //clear_inner();
-          //clear_inner_static();
-          m_root_static = ln_new;
-        }
-
-	//m_root_static = ln_new; //t1
-        //std::cout << "DYNAMIC**********************************************************\n";
-        //print(std::cout);
-        //std::cout << "STATIC**********************************************************\n";
-        //print_static(std::cout);
-        //std::cout << "STATIC LEAVES**********************************************************\n";
-        //print_leaves_detailed_static(std::cout);
-        //std::cout << "STATIC LEAVES END**********************************************************\n";
       } //END else
 
-      /*
-      std::cout << "MERGE END=================================================\n";
-      std::cout << "dynamic item count = " << m_stats.itemcount << "\n";
-      std::cout << "static item count = " << m_stats_static.itemcount << "\n";
-      print(std::cout);
-      print_static(std::cout);
-      std::cout << "\n\n";
-      */
+      if (node_count > 1) {
+	inner_level = 1;
+	in_static = allocate_inner_static(inner_level);
+	std::vector<inner_node*> ins;
+	ln_static = m_headleaf_static;
+	curslot = 0;
+	node_count = 1;
+	while (ln_static != NULL) {
+	  if (curslot > innerslotmax) {
+	    ins.push_back(in_static);
+	    in_static = allocate_inner_static(inner_level);
+	    curslot = 0;
+	    node_count++;
+	  }
+	  if (curslot == innerslotmax) {
+	    in_static->childid[curslot] = ln_static;
+	    curslot++;
+	    ln_static = ln_static->nextleaf;
+	  }
+	  else {
+	    std::string str;
+	    snappy::Uncompress(ln_static->data, ln_static->size, &str);
+	    const leaf_node *leaf = reinterpret_cast<const leaf_node*>(str.data());
+
+	    in_static->slotuse++;
+	    in_static->slotkey[curslot] = leaf->slotkey[ln_static->slotuse - 1];
+	    in_static->childid[curslot] = ln_static;
+	    curslot++;
+	    ln_static = ln_static->nextleaf;
+	  }
+	} //END while
+
+	if (curslot != (innerslotmax + 1)) {
+	  in_static->slotuse--;
+	}
+	ins.push_back(in_static);
+
+	while (node_count > 1) {
+	  inner_level++;
+	  in_static = allocate_inner_static(inner_level);
+	  std::vector<inner_node*> curins = ins;
+	  ins.clear();
+	  ins.push_back(in_static);
+	  int curnode_id = 0;
+	  curslot = 0;
+	  node_count = 1;
+
+	  while (curnode_id < curins.size()) {
+	    if (curslot > innerslotmax) {
+	      in_static = allocate_inner_static(inner_level);
+	      ins.push_back(in_static);
+	      curslot = 0;
+	      node_count++;
+	    }
+	    node* n = curins[curnode_id];
+	    while (!n->isleafnode()) {
+	      inner_node *innernode = static_cast<inner_node*>(n);
+	      n = innernode->childid[innernode->slotuse];
+	    }
+	    compressed_node *leafnode_compressed = static_cast<compressed_node*>(n);
+	    std::string str_n;
+	    snappy::Uncompress(leafnode_compressed->data, leafnode_compressed->size, &str_n);
+	    const leaf_node *leafnode = reinterpret_cast<const leaf_node*>(str_n.data());
+
+	    if (curslot == innerslotmax) {
+	      in_static->childid[curslot] = curins[curnode_id];
+	      curslot++;
+	      curnode_id++;
+	    }
+	    else {
+	      in_static->slotkey[curslot] = leafnode->slotkey[leafnode->slotuse - 1];
+	      in_static->childid[curslot] = curins[curnode_id];
+	      in_static->slotuse++;
+	      curslot++;
+	      curnode_id++;
+	    }
+	  } //END while
+	  if (curslot != (innerslotmax + 1)) {
+	    in_static->slotuse--;
+	  }
+	} //END while
+
+	m_root_static = in_static;
+      } //END if
+      else {
+	m_root_static = ln_static;
+      } //END else
 
       m_stats = tree_stats();
-
-      //std::cout << "MERGE=========================================\n";
-      //std::cout << m_stats.itemcount << "\n";
-      //std::cout << m_stats_static.itemcount << "\n";
 
       //bloom filter
       if (USE_BLOOM_FILTER) {

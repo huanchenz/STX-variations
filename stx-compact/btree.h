@@ -2461,17 +2461,17 @@ public:
         const leaf_node* leaf = static_cast<const leaf_node*>(n);
 
         int slot = find_lower(leaf, key);
-        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != 0));
+        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != (data_type)0));
     }
 
     bool exists_hybrid(const key_type& key) const
     {
       if (USE_BLOOM_FILTER) {
 	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
-	  return exist_static(key);
+	  return exists_static(key);
 	}
       }
-      return exist(key) || exist_static(key);
+      return exists(key) || exists_static(key);
     }
 
     /// Tries to locate a key in the B+ tree and returns an iterator to the
