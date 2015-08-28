@@ -62,6 +62,9 @@
 #define BITS_PER_KEY 8
 #define K 2
 
+#define BUFFER_SIZE 65535
+#define INVALID_BUFFER_IDX 65535
+
 // *** Debugging Macros
 
 #ifdef BTREE_DEBUG
@@ -417,9 +420,129 @@ private:
       char *data;
       unsigned short size;
 
+      unsigned short buffer_idx;
+
       inline compressed_node()
-	: node(0), prevleaf(NULL), nextleaf(NULL)
+	: node(0), prevleaf(NULL), nextleaf(NULL), buffer_idx(INVALID_BUFFER_IDX)
       { }
+    };
+
+    struct leaf_buffer
+    {
+      typename btree::leaf_node* pool;
+      typename btree::compressed_node** back_ptrs;
+      char* clock;
+      unsigned short top;
+      unsigned short clock_cursor;
+
+      inline leaf_buffer()
+	: pool(NULL), back_ptrs(NULL), clock(NULL), top(0), clock_cursor(0)
+      {}
+
+      inline void init() {
+	pool = (leaf_node*)malloc(sizeof(leaf_node)*BUFFER_SIZE);
+	back_ptrs = (compressed_node**)malloc(sizeof(compressed_node*)*BUFFER_SIZE);
+	clock = (char*)malloc(BUFFER_SIZE/8 + 1);
+      }
+
+      inline void destroy() {
+	free(pool);
+	free(back_ptrs);
+	free(clock);
+      }
+
+      inline char one_mask(unsigned short idx) {
+	if (idx % 8 == 0)
+	  return 0x01;
+	else if (idx % 8 == 1)
+	  return 0x02;
+	else if (idx % 8 == 2)
+	  return 0x04;
+	else if (idx % 8 == 3)
+	  return 0x08;
+	else if (idx % 8 == 4)
+	  return 0x10;
+	else if (idx % 8 == 5)
+	  return 0x20;
+	else if (idx % 8 == 6)
+	  return 0x40;
+	else if (idx % 8 == 7)
+	  return 0x80;
+	else
+	  return 0x00;
+      }
+
+      inline char zero_mask(unsigned short idx) {
+	if (idx % 8 == 0)
+	  return 0xFE;
+	else if (idx % 8 == 1)
+	  return 0xFD;
+	else if (idx % 8 == 2)
+	  return 0xFB;
+	else if (idx % 8 == 3)
+	  return 0xF7;
+	else if (idx % 8 == 4)
+	  return 0xEF;
+	else if (idx % 8 == 5)
+	  return 0xDF;
+	else if (idx % 8 == 6)
+	  return 0xBF;
+	else if (idx % 8 == 7)
+	  return 0x7F;
+	else
+	  return 0xFF;
+      }
+
+      inline bool clock_is_one(unsigned short idx) {
+	return (clock[idx/8] & one_mask(idx) != 0x00);
+      }
+
+      inline bool clock_is_zero(unsigned short idx) {
+	return (clock[idx/8] & one_mask(idx) == 0x00);
+      }
+
+      inline void set_clock_to_one(unsigned short idx) {
+	clock[idx/8] = clock[idx/8] | one_mask(idx);
+      }
+
+      inline void set_clock_to_zero(unsigned short idx) {
+	clock[idx/8] = clock[idx/8] & zero_mask(idx);
+      }
+
+      inline void increment_clock_cursor() {
+	if (clock_cursor >= BUFFER_SIZE)
+	  clock_cursor = 0;
+	else
+	  clock_cursor++;
+      }
+
+      inline leaf_node* get(unsigned short idx) {
+	if (idx >= top)
+	  return NULL;
+	set_clock_to_one(idx);
+	return &pool[idx];
+      }
+
+      inline void insert(compressed_node* ln_compressed, const leaf_node* ln) {
+	if (top < BUFFER_SIZE) {
+	  back_ptrs[top] = ln_compressed;
+	  memcpy(&pool[top], ln, sizeof(leaf_node));
+	  set_clock_to_zero(top);
+	  top++;
+	}
+	else {
+	  while (clock_is_one(clock_cursor)) {
+	    set_clock_to_zero(clock_cursor);
+	    increment_clock_cursor();
+	  }
+	  back_ptrs[clock_cursor]->buffer_idx = INVALID_BUFFER_IDX;
+	  back_ptrs[clock_cursor] = ln_compressed;
+	  ln_compressed->buffer_idx = clock_cursor;
+	  memcpy(&pool[clock_cursor], ln, sizeof(leaf_node));
+	  set_clock_to_zero(clock_cursor);
+	  increment_clock_cursor();
+	}
+      }
     };
 
 private:
@@ -475,7 +598,6 @@ public:
 
     //huanchen-compress
     class hybrid_iterator;
-    //class const_hybrid_iterator;
 
     /// STL-like iterator object for B+ tree items. The iterator points to a
     /// specific slot number in a leaf.
@@ -1334,6 +1456,8 @@ public:
         /// Current key/data slot referenced
         unsigned short currslot;
 
+	typename btree::leaf_buffer *buffer;
+
         /// Friendly to the const_iterator, so it may access the two data items
         /// directly.
 	friend class iterator;
@@ -1366,17 +1490,25 @@ public:
 
         /// Default-Constructor of a mutable iterator
         inline static_iterator()
-	  : currnode_compressed(NULL), currslot(0)
+	  : currnode_compressed(NULL), currslot(0), buffer(NULL)
         { }
 
         /// Initializing-Constructor of a mutable iterator
-        inline static_iterator(typename btree::compressed_node* l_c, unsigned short s)
+        inline static_iterator(typename btree::compressed_node* l_c, unsigned short s, typename btree::leaf_buffer* lb)
 	  : currnode_compressed(l_c), currslot(s)
         {
+	  buffer = lb;
 	  if (l_c != NULL) {
-	    std::string str;
-	    snappy::Uncompress(l_c->data, l_c->size, &str);
-	    memcpy(&currnode, str.data(), str.size());
+	    if (l_c->buffer_idx == INVALID_BUFFER_IDX) {
+	      std::string str;
+	      snappy::Uncompress(l_c->data, l_c->size, &str);
+	      memcpy(&currnode, str.data(), str.size());
+	      buffer->insert(l_c, &currnode);
+	    }
+	    else {
+	      leaf_node* ln = buffer->get(l_c->buffer_idx);
+	      memcpy(&currnode, ln, sizeof(leaf_node));
+	    }
 	  }
 	}
 
@@ -1396,6 +1528,10 @@ public:
 
         inline unsigned short get_currslot() {
           return currslot;
+        }
+
+        inline leaf_buffer *get_buffer() {
+          return buffer;
         }
 
 	inline bool isBegin() {
@@ -1444,18 +1580,26 @@ public:
 	inline void moveToNext() {
 	  do {
             if (currslot + 1 < currnode.slotuse) {
-                ++currslot;
+	      ++currslot;
             }
             else if (currnode_compressed->nextleaf != NULL) {
-                currnode_compressed = currnode_compressed->nextleaf;
+	      currnode_compressed = currnode_compressed->nextleaf;
+	      if (currnode_compressed->buffer_idx == INVALID_BUFFER_IDX) {
 		std::string str;
 		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, &str);
 		memcpy(&currnode, str.data(), str.size());
-                currslot = 0;
+		buffer->insert(currnode_compressed, &currnode);
+	      }
+	      else {
+		leaf_node* ln = buffer->get(currnode_compressed->buffer_idx);
+		memcpy(&currnode, ln, sizeof(leaf_node));
+	      }
+
+	      currslot = 0;
             }
             else {
-                // this is end()
-                currslot = currnode.slotuse;
+	      // this is end()
+	      currslot = currnode.slotuse;
             }
 	  } while (!isEnd() && (currnode.slotdata[currslot] == (data_type)0));
 	}
@@ -1463,18 +1607,26 @@ public:
 	inline void moveToPrev() {
 	  do {
             if (currslot > 0) {
-                --currslot;
+	      --currslot;
             }
             else if (currnode_compressed->prevleaf != NULL) {
-                currnode_compressed = currnode_compressed->prevleaf;
+	      currnode_compressed = currnode_compressed->prevleaf;
+	      if (currnode_compressed->buffer_idx == INVALID_BUFFER_IDX) {
 		std::string str;
 		snappy::Uncompress(currnode_compressed->data, currnode_compressed->size, &str);
 		memcpy(&currnode, str.data(), str.size());
-                currslot = currnode->slotuse - 1;
+		buffer->insert(currnode_compressed, &currnode);
+	      }
+	      else {
+		leaf_node* ln = buffer->get(currnode_compressed->buffer_idx);
+		memcpy(&currnode, ln, sizeof(leaf_node));
+	      }
+
+	      currslot = currnode->slotuse - 1;
             }
             else {
-                // this is begin()
-                currslot = 0;
+	      // this is begin()
+	      currslot = 0;
             }
 	  } while (!isBegin() && (currnode.slotdata[currslot] == (data_type)0));
 	}
@@ -1566,6 +1718,8 @@ public:
 
         unsigned short currtree; //0 = dynamic, 1 = static
 
+	typename btree::leaf_buffer* buffer;
+
         /// Friendly to the const_iterator, so it may access the two data items
         /// directly.
         friend class iterator;
@@ -1600,17 +1754,25 @@ public:
 
         /// Default-Constructor of a mutable iterator
         inline hybrid_iterator()
-          : currnode(NULL), currnode_static_compressed(NULL), currslot(0), currslot_static(0), currtree(0)
+          : currnode(NULL), currnode_static_compressed(NULL), currslot(0), currslot_static(0), currtree(0), buffer(NULL)
         { }
 
         /// Initializing-Constructor of a mutable iterator
-        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::compressed_node* l_static_compressed, short s_static, unsigned short ctree)
+        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::compressed_node* l_static_compressed, short s_static, unsigned short ctree, typename btree::leaf_buffer* lb)
           : currnode(l), currslot(s), currnode_static_compressed(l_static_compressed), currslot_static(s_static), currtree(ctree)
         { 
+	  buffer = lb;
 	  if (l_static_compressed != NULL) {
-	    std::string str;
-	    snappy::Uncompress(l_static_compressed->data, l_static_compressed->size, &str);
-	    memcpy(&currnode_static, str.data(), str.size());
+	    if (l_static_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+	      std::string str;
+	      snappy::Uncompress(l_static_compressed->data, l_static_compressed->size, &str);
+	      memcpy(&currnode_static, str.data(), str.size());
+	      buffer->insert(l_static_compressed, &currnode_static);
+	    }
+	    else {
+	      leaf_node* ln = buffer->get(l_static_compressed->buffer_idx);
+	      memcpy(&currnode_static, ln, sizeof(leaf_node));
+	    }
 	  }
 	}
 
@@ -1638,6 +1800,10 @@ public:
 
         inline short get_currslot_static() {
           return currslot_static;
+        }
+
+        inline leaf_buffer* get_buffer() {
+          return buffer;
         }
 
 	inline bool isBegin() {
@@ -1716,9 +1882,17 @@ public:
 	      }
 	      else if (currnode_static_compressed->nextleaf != NULL) {
 		currnode_static_compressed = currnode_static_compressed->nextleaf;
-		std::string str;
-		snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, &str);
-		memcpy(&currnode_static, str.data(), str.size());
+		if (currnode_static_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+		  std::string str;
+		  snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, &str);
+		  memcpy(&currnode_static, str.data(), str.size());
+		  buffer->insert(currnode_static_compressed, &currnode_static);
+		}
+		else {
+		  leaf_node* ln = buffer->get(currnode_static_compressed->buffer_idx);
+		  memcpy(&currnode_static, ln, sizeof(leaf_node));
+		}
+
 		currslot_static = 0;
 	      }
 	      else {
@@ -1767,9 +1941,17 @@ public:
 	      }
 	      else if (currnode_static_compressed->prevleaf != NULL) {
 		currnode_static_compressed = currnode_static_compressed->prevleaf;
-		std::string str;
-		snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, &str);
-		memcpy(&currnode_static, str.data(), str.size());
+		if (currnode_static_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+		  std::string str;
+		  snappy::Uncompress(currnode_static_compressed->data, currnode_static_compressed->size, &str);
+		  memcpy(&currnode_static, str.data(), str.size());
+		  buffer->insert(currnode_static_compressed, &currnode_static);
+		}
+		else {
+		  leaf_node* ln = buffer->get(currnode_static_compressed->buffer_idx);
+		  memcpy(&currnode_static, ln, sizeof(leaf_node));
+		}
+
 		currslot_static = currnode_static.slotuse - 1;
 	      }
 	      else {
@@ -1920,6 +2102,8 @@ private:
     leaf_node* m_tailleaf;
     compressed_node* m_tailleaf_static; //huanchen-compress
 
+    leaf_buffer *m_leaf_buffer;
+
     /// Other small statistics about the B+ tree
     tree_stats m_stats;
     tree_stats m_stats_static; //h
@@ -1956,7 +2140,8 @@ public:
     /// comparison function
     explicit inline btree(const allocator_type& alloc = allocator_type())
         : m_root(NULL), m_headleaf(NULL), m_tailleaf(NULL), m_allocator(alloc),
-          m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL) //h
+          m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL),
+          m_leaf_buffer(NULL)
     {
 
       //bloom filter
@@ -1984,8 +2169,8 @@ public:
     explicit inline btree(const key_compare& kcf,
                           const allocator_type& alloc = allocator_type())
         : m_root(NULL), m_headleaf(NULL), m_tailleaf(NULL),
-          m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL), //h
-          m_key_less(kcf), m_allocator(alloc)
+          m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL),
+          m_leaf_buffer(NULL), m_key_less(kcf), m_allocator(alloc)
     {
 
       //bloom filter
@@ -2015,7 +2200,8 @@ public:
     inline btree(InputIterator first, InputIterator last,
                  const allocator_type& alloc = allocator_type())
         : m_root(NULL), m_headleaf(NULL), m_tailleaf(NULL), m_allocator(alloc),
-          m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL) //h
+          m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL),
+          m_leaf_buffer(NULL)
     {
 
       //bloom filter
@@ -2047,7 +2233,7 @@ public:
                  const allocator_type& alloc = allocator_type())
         : m_root(NULL), m_headleaf(NULL), m_tailleaf(NULL),
           m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL),
-          m_key_less(kcf), m_allocator(alloc)
+          m_leaf_buffer(NULL), m_key_less(kcf), m_allocator(alloc)
     {
 
       //bloom filter
@@ -2078,6 +2264,11 @@ public:
       //bloom filter
       if (USE_BLOOM_FILTER)
 	free(bloom_filter);
+
+      if (m_leaf_buffer) {
+	m_leaf_buffer->destroy();
+	delete m_leaf_buffer;
+      }
 
       clear();
       clear_static();
@@ -2533,7 +2724,7 @@ public:
 
     inline hybrid_iterator hybrid_begin()
     {
-      return hybrid_iterator(m_headleaf, -1, m_headleaf_static, -1, 0);
+      return hybrid_iterator(m_headleaf, -1, m_headleaf_static, -1, 0, m_leaf_buffer);
     }
 
     /// Constructs a read/data-write iterator that points to the first invalid
@@ -2546,12 +2737,12 @@ public:
     //huanchen-compress
     inline static_iterator static_end()
     {
-        return static_iterator(m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0);
+      return static_iterator(m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, m_leaf_buffer);
     }
 
     inline hybrid_iterator hybrid_end()
     {
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
+      return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_leaf_buffer);
     }
 
     /// Constructs a read-only constant iterator that points to the first slot
@@ -2855,9 +3046,17 @@ public:
         }
 
 	compressed_node *leaf_compressed = static_cast<compressed_node*>(n);
+	
+	const leaf_node* leaf;
 	std::string str;
-	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
-	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
+	if (leaf_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+	  snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
+	  leaf = reinterpret_cast<const leaf_node*>(str.data());
+	  m_leaf_buffer->insert(leaf_compressed, leaf);
+	}
+	else {
+	  leaf = m_leaf_buffer->get(leaf_compressed->buffer_idx);
+	}
 
         int slot = find_lower(leaf, key);
         return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != (data_type)0));
@@ -2909,9 +3108,16 @@ public:
         }
 
 	compressed_node *leaf_compressed = static_cast<compressed_node*>(n);
+	const leaf_node* leaf;
 	std::string str;
-	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
-	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
+	if (leaf_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+	  snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
+	  leaf = reinterpret_cast<const leaf_node*>(str.data());
+	  m_leaf_buffer->insert(leaf_compressed, leaf);
+	}
+	else {
+	  leaf = m_leaf_buffer->get(leaf_compressed->buffer_idx);
+	}
 
         int slot = find_lower(leaf, key);
 
@@ -2933,7 +3139,7 @@ public:
       if (key_iter == end()) {
         return find_static(key);
       }
-      return hybrid_iterator(key_iter.get_currnode(), key_iter.get_currslot(), NULL, 0, 0);
+      return hybrid_iterator(key_iter.get_currnode(), key_iter.get_currslot(), NULL, 0, 0, m_leaf_buffer);
     }
 
     /// Tries to locate a key in the B+ tree and returns an constant iterator
@@ -3006,9 +3212,16 @@ public:
         }
 
 	compressed_node *leaf_compressed = static_cast<compressed_node*>(n);
+	const leaf_node* leaf;
 	std::string str;
-	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
-	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
+	if (leaf_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+	  snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
+	  leaf = reinterpret_cast<const leaf_node*>(str.data());
+	  m_leaf_buffer->insert(leaf_compressed, leaf);
+	}
+	else {
+	  leaf = m_leaf_buffer->get(leaf_compressed->buffer_idx);
+	}
 
         int slot = find_lower(leaf, key);
         size_type num = 0;
@@ -3020,8 +3233,15 @@ public:
             {
                 leaf_compressed = leaf_compressed->nextleaf;
 		if (leaf_compressed != NULL) {
-		  snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
-		  leaf = reinterpret_cast<const leaf_node*>(str.data());
+		  std::string str;
+		  if (leaf_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+		    snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
+		    leaf = reinterpret_cast<const leaf_node*>(str.data());
+		    m_leaf_buffer->insert(leaf_compressed, leaf);
+		  }
+		  else {
+		    leaf = m_leaf_buffer->get(leaf_compressed->buffer_idx);
+		  }
 		}
                 slot = 0;
             }
@@ -3071,12 +3291,19 @@ public:
         }
 
 	compressed_node *leaf_compressed = static_cast<compressed_node*>(n);
+	const leaf_node* leaf;
 	std::string str;
-	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
-	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
+	if (leaf_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+	  snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
+	  leaf = reinterpret_cast<const leaf_node*>(str.data());
+	  m_leaf_buffer->insert(leaf_compressed, leaf);
+	}
+	else {
+	  leaf = m_leaf_buffer->get(leaf_compressed->buffer_idx);
+	}
 
         int slot = find_lower(leaf, key);
-	static_iterator iter = static_iterator(leaf_compressed, slot);
+	static_iterator iter = static_iterator(leaf_compressed, slot, m_leaf_buffer);
 	if (!iter.isEnd()) {
 	  if (leaf->slotdata[slot] == 0)
 	    iter++;
@@ -3095,7 +3322,7 @@ public:
         return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
       }
       else if (iter_static.isEnd()) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_leaf_buffer);
       }
       else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode()->slotkey[iter_static.get_currslot()])) {
         return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0);
@@ -3163,12 +3390,19 @@ public:
         }
 
 	compressed_node *leaf_compressed = static_cast<compressed_node*>(n);
+	const leaf_node* leaf;
 	std::string str;
-	snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
-	const leaf_node* leaf = reinterpret_cast<const leaf_node*>(str.data());
+	if (leaf_compressed->buffer_idx == INVALID_BUFFER_IDX) {
+	  snappy::Uncompress(leaf_compressed->data, leaf_compressed->size, &str);
+	  leaf = reinterpret_cast<const leaf_node*>(str.data());
+	  m_leaf_buffer->insert(leaf_compressed, leaf);
+	}
+	else {
+	  leaf = m_leaf_buffer->get(leaf_compressed->buffer_idx);
+	}
 
         int slot = find_upper(leaf, key);
-	static_iterator iter = static_iterator(leaf_compressed, slot);
+	static_iterator iter = static_iterator(leaf_compressed, slot, m_leaf_buffer);
 	if (!iter.isEnd()) {
 	  if (leaf->slotdata[slot] == 0)
 	    iter++;
@@ -3187,7 +3421,7 @@ public:
         return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
       }
       else if (iter_static.isEnd()) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_leaf_buffer);
       }
       else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode()->slotkey[iter_static.get_currslot()])) {
         return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0);
@@ -5383,6 +5617,9 @@ public:
 	node_count++;
 
         m_tailleaf_static = ln_static;
+
+	m_leaf_buffer = new leaf_buffer();
+	m_leaf_buffer->init();
       }
       else {
 	compressed_node *ln_new = allocate_leaf_compressed();
@@ -5550,6 +5787,8 @@ public:
 	free_node_static(ln_new_leaf);
 	ln_new->nextleaf = NULL;
         m_tailleaf_static = ln_new;
+
+	m_leaf_buffer->top = 0;
       } //END else
 
       if (node_count > 1) {
