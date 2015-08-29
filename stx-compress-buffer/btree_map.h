@@ -381,10 +381,20 @@ public:
         return tree.get_num_leaves_static();
     }
 
+    inline const size_t get_bloom_filter_size() const
+    {
+        return tree.get_bloom_filter_size();
+    }
+
     //huanchen-compress
     inline const uint32_t get_compressed_data_size() const
     {
         return tree.get_compressed_data_size();
+    }
+
+    inline const int get_leaf_buffer_size() const
+    {
+        return tree.get_leaf_buffer_size();
     }
 
     //huanchen-stats

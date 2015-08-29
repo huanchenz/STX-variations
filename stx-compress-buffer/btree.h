@@ -510,10 +510,9 @@ private:
       }
 
       inline void increment_clock_cursor() {
+	clock_cursor++;
 	if (clock_cursor >= BUFFER_SIZE)
 	  clock_cursor = 0;
-	else
-	  clock_cursor++;
       }
 
       inline leaf_node* get(unsigned short idx) {
@@ -1776,9 +1775,10 @@ public:
 	  }
 	}
 
-        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::compressed_node* l_static_compressed, const typename btree::leaf_node* l_static, short s_static, unsigned short ctree)
+        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::compressed_node* l_static_compressed, const typename btree::leaf_node* l_static, short s_static, unsigned short ctree, typename btree::leaf_buffer* lb)
           : currnode(l), currslot(s), currnode_static_compressed(l_static_compressed), currslot_static(s_static), currtree(ctree)
         { 
+	  buffer = lb;
 	  memcpy(&currnode_static, l_static, sizeof(leaf_node));
 	}
 
@@ -2950,10 +2950,20 @@ public:
         return m_stats_static.leaves;
     }
 
+    inline const size_t get_bloom_filter_size() const
+    {
+        return bits/8;
+    }
+
     //huanchen-compress
     inline const uint32_t get_compressed_data_size() const
     {
       return m_compressed_data_size;
+    }
+
+    inline const int get_leaf_buffer_size() const
+    {
+      return sizeof(leaf_node) * BUFFER_SIZE + sizeof(compressed_node*) * BUFFER_SIZE + BUFFER_SIZE/8 + 1;
     }
 
     //huanchen-stats
@@ -3122,7 +3132,7 @@ public:
         int slot = find_lower(leaf, key);
 
         return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != 0))
-	? hybrid_iterator(NULL, 0, leaf_compressed, leaf, slot, 1) : hybrid_end();
+	? hybrid_iterator(NULL, 0, leaf_compressed, leaf, slot, 1, m_leaf_buffer) : hybrid_end();
     }
 
     hybrid_iterator find_hybrid(const key_type& key)
@@ -3319,16 +3329,16 @@ public:
         return hybrid_end();
       }
       else if (iter == end()) {
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
+        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1, m_leaf_buffer);
       }
       else if (iter_static.isEnd()) {
         return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_leaf_buffer);
       }
       else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode()->slotkey[iter_static.get_currslot()])) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0, m_leaf_buffer);
       }
       else {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1, m_leaf_buffer);
       }
     }
 
@@ -3418,16 +3428,16 @@ public:
         return hybrid_end();
       }
       else if (iter == end()) {
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
+        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1, m_leaf_buffer);
       }
       else if (iter_static.isEnd()) {
         return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_leaf_buffer);
       }
       else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode()->slotkey[iter_static.get_currslot()])) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 0, m_leaf_buffer);
       }
       else {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_compressed(), iter_static.get_currnode(), iter_static.get_currslot(), 1, m_leaf_buffer);
       }
     }
 

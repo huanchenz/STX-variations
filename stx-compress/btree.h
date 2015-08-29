@@ -2759,10 +2759,20 @@ public:
         return m_stats_static.leaves;
     }
 
+    inline const size_t get_bloom_filter_size() const
+    {
+        return bits/8;
+    }
+
     //huanchen-compress
     inline const uint32_t get_compressed_data_size() const
     {
       return m_compressed_data_size;
+    }
+
+    inline const int get_leaf_buffer_size() const
+    {
+      return 0;
     }
 
     //huanchen-stats
