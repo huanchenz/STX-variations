@@ -53,7 +53,7 @@
 #include <string.h>
 
 #define BTREE_MERGE 1
-#define BTREE_MERGE_THRESHOLD 100
+#define BTREE_MERGE_THRESHOLD 10
 #define BTREE_MERGE_RATIO 10
 
 #define USE_BLOOM_FILTER 1
@@ -1536,7 +1536,7 @@ public:
         {
 	  do {
 	    moveToNext();
-	  } while(!isEnd() && (currnode_static->slotdata[currslot_static] == (data_type)0));
+	  } while((currslot_static != currnode_static->slotuse) && (currnode_static->slotdata[currslot_static] == (data_type)0));
 
           return *this;
         }
@@ -1548,7 +1548,7 @@ public:
 
 	  do {
 	    moveToNext();
-	  } while(!isEnd() && (currnode_static->slotdata[currslot_static] == (data_type)0));
+	  } while((currslot_static != currnode_static->slotuse) && (currnode_static->slotdata[currslot_static] == (data_type)0));
 
           return tmp;
         }
@@ -1558,7 +1558,7 @@ public:
         {
 	  do {
 	    moveToPrev();
-	  } while(!isBegin() && (currnode_static->slotdata[currslot_static] == (data_type)0));	  
+	  } while((currslot_static != -1) && (currnode_static->slotdata[currslot_static] == (data_type)0));	  
 
           return *this;
         }
@@ -1570,7 +1570,7 @@ public:
 
 	  do {
 	    moveToPrev();
-	  } while(!isBegin() && (currnode_static->slotdata[currslot_static] == (data_type)0));	  
+	  } while((currslot_static != -1) && (currnode_static->slotdata[currslot_static] == (data_type)0));	  
 
           return tmp;
         }
@@ -5212,7 +5212,8 @@ public:
 	m_root_static = in_static;
       } //END if
       else {
-	m_root_static = ln_static;
+	//m_root_static = ln_static;
+	m_root_static = m_headleaf_static;
       } //END else
 
       //bloom filter
@@ -5220,7 +5221,6 @@ public:
 	free(bloom_filter);
 	bloom_filter = CreateEmptyFilter(m_stats_static.itemcount/BTREE_MERGE_RATIO);
       }
-
     } //END merge
 
     int height() {

@@ -1725,7 +1725,7 @@ public:
 		// this is end()
 		currslot_static = currnode_static.slotuse;
 	      }
-	    } while (!isEnd() && (currnode_static.slotdata[currslot_static] == 0));
+	    } while ((currslot_static != currnode_static.slotuse) && (currnode_static.slotdata[currslot_static] == 0));
           }
 
           if ((currnode == NULL) || (currslot == currnode->slotuse)) {
@@ -1776,7 +1776,7 @@ public:
 		// this is begin()
 		currslot_static = -1;
 	      }
-	    } while (!isBegin() && (currnode_static.slotdata[currslot_static] == (data_type)0));
+	    } while ((currslot_static != -1) && (currnode_static.slotdata[currslot_static] == (data_type)0));
           }
 
           if ((currnode == NULL) || ((currnode->prevleaf == NULL) && (currslot == -1))) {
@@ -5647,7 +5647,8 @@ public:
 	m_root_static = in_static;
       } //END if
       else {
-	m_root_static = ln_static;
+	//m_root_static = ln_static;
+	m_root_static = m_headleaf_static;
       } //END else
 
       m_stats = tree_stats();
