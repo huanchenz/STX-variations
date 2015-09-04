@@ -159,6 +159,8 @@ public:
     /// create constant reverse iterator by using STL magic
     typedef typename btree_impl::const_reverse_iterator const_reverse_iterator;
 
+    typedef typename btree_impl::hybrid_iterator hybrid_iterator;
+
 private:
     // *** Tree Implementation Object
 
@@ -250,11 +252,21 @@ public:
         return tree.begin();
     }
 
+    inline hybrid_iterator hybrid_begin()
+    {
+        return tree.hybrid_begin();
+    }
+
     /// Constructs a read/data-write iterator that points to the first invalid
     /// slot in the last leaf of the B+ tree.
     inline iterator end()
     {
         return tree.end();
+    }
+
+    inline hybrid_iterator hybrid_end()
+    {
+        return tree.hybrid_end();
     }
 
     /// Constructs a read-only constant iterator that points to the first slot
@@ -365,6 +377,11 @@ public:
         return tree.lower_bound(key);
     }
 
+    hybrid_iterator lower_bound_hybrid(const key_type& key)
+    {
+        return tree.lower_bound_hybrid(key);
+    }
+
     /// Searches the B+ tree and returns a constant iterator to the
     /// first pair equal to or greater than key, or end() if all keys
     /// are smaller.
@@ -380,6 +397,11 @@ public:
         return tree.upper_bound(key);
     }
 
+    hybrid_iterator upper_bound_hybrid(const key_type& key)
+    {
+        return tree.upper_bound_hybrid(key);
+    }
+
     /// Searches the B+ tree and returns a constant iterator to the
     /// first pair greater than key, or end() if all keys are smaller
     /// or equal.
@@ -392,6 +414,12 @@ public:
     inline std::pair<iterator, iterator> equal_range(const key_type& key)
     {
         return tree.equal_range(key);
+    }
+
+    //huanchen
+    inline std::pair<hybrid_iterator, hybrid_iterator> equal_range_hybrid(const key_type& key)
+    {
+        return tree.equal_range_hybrid(key);
     }
 
     /// Searches the B+ tree and returns both lower_bound() and upper_bound().
@@ -542,6 +570,11 @@ public:
         return tree.erase(iter);
     }
 
+    void erase_hybrid(hybrid_iterator iter)
+    {
+        return tree.erase_hybrid(iter);
+    }
+
 #ifdef BTREE_TODO
     /// Erase all key/data pairs in the range [first,last). This function is
     /// currently not implemented by the B+ Tree.
@@ -598,6 +631,10 @@ public:
     bool restore(std::istream& is)
     {
         return tree.restore(is);
+    }
+
+    void merge() {
+      tree.merge();
     }
 };
 

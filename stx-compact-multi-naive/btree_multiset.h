@@ -1,5 +1,5 @@
 /*******************************************************************************
- * include/stx/btree_multimap.h
+ * include/stx/btree_multiset.h
  *
  * STX B+ Tree Template Classes v0.9
  * Copyright (C) 2008-2013 Timo Bingmann
@@ -29,37 +29,41 @@
  * DEALINGS IN THE SOFTWARE.
  ******************************************************************************/
 
-#ifndef STX_STX_BTREE_MULTIMAP_H_HEADER
-#define STX_STX_BTREE_MULTIMAP_H_HEADER
+#ifndef STX_STX_BTREE_MULTISET_H_HEADER
+#define STX_STX_BTREE_MULTISET_H_HEADER
 
-/** \file btree_multimap.h
- * Contains the specialized B+ tree template class btree_multimap
+/** \file btree_multiset.h
+ * Contains the specialized B+ tree template class btree_multiset
  */
 
-#include "btree.h"
+#include <stx/btree.h>
 
 namespace stx {
 
-/** @brief Specialized B+ tree template class implementing STL's multimap
+/** @brief Specialized B+ tree template class implementing STL's multiset
  * container.
  *
- * Implements the STL multimap using a B+ tree. It can be used as a drop-in
- * replacement for std::multimap. Not all asymptotic time requirements are met
+ * Implements the STL multiset using a B+ tree. It can be used as a drop-in
+ * replacement for std::multiset. Not all asymptotic time requirements are met
  * in theory. The class has a traits class defining B+ tree properties like
  * slots and self-verification. Furthermore an allocator can be specified for
  * tree nodes.
  *
- * Most noteworthy difference to the default red-black implementation of
- * std::multimap is that the B+ tree does not hold key and data pair together
- * in memory. Instead each B+ tree node has two arrays of keys and data
- * values. This design directly generates many problems in implementing the
- * iterator's operator's which return value_type composition pairs.
+ * It is somewhat inefficient to implement a multiset using a B+ tree, a plain
+ * B tree would hold fewer copies of the keys.
+ *
+ * The set class is derived from the base implementation class btree by
+ * specifying an empty struct as data_type. All function are adapted to provide
+ * the inner class with placeholder objects. Most tricky to get right were the
+ * return type's of iterators which as value_type should be the same as
+ * key_type, and not a pair of key and dummy-struct. This is taken case of
+ * using some template magic in the btree class.
  */
-template <typename _Key, typename _Data,
+template <typename _Key,
           typename _Compare = std::less<_Key>,
-          typename _Traits = btree_default_map_traits<_Key, _Data>,
-          typename _Alloc = std::allocator<std::pair<_Key, _Data> > >
-class btree_multimap
+          typename _Traits = btree_default_set_traits<_Key>,
+          typename _Alloc = std::allocator<_Key> >
+class btree_multiset
 {
 public:
     // *** Template Parameter Types
@@ -68,18 +72,14 @@ public:
     /// inner nodes and leaves
     typedef _Key key_type;
 
-    /// Second template parameter: The data type associated with each
-    /// key. Stored in the B+ tree's leaves
-    typedef _Data data_type;
-
-    /// Third template parameter: Key comparison function object
+    /// Second template parameter: Key comparison function object
     typedef _Compare key_compare;
 
-    /// Fourth template parameter: Traits object used to define more parameters
+    /// Third template parameter: Traits object used to define more parameters
     /// of the B+ tree
     typedef _Traits traits;
 
-    /// Fifth template parameter: STL allocator
+    /// Fourth template parameter: STL allocator
     typedef _Alloc allocator_type;
 
     // The macro BTREE_FRIENDS can be used by outside class to access the B+
@@ -87,21 +87,30 @@ public:
     // tree.
     BTREE_FRIENDS
 
+private:
+    // *** The Data_Type
+
+    /// The empty struct used as a placeholder for the data_type.
+    struct empty_struct
+    { };
+
 public:
     // *** Constructed Types
 
-    /// Typedef of our own type
-    typedef btree_multimap<key_type, data_type, key_compare, traits, allocator_type> self_type;
+    /// The empty data_type
+    typedef struct empty_struct data_type;
 
-    /// Construct the STL-required value_type as a composition pair of key and
-    /// data types
-    typedef std::pair<key_type, data_type> value_type;
+    /// Construct the set value_type: the key_type.
+    typedef key_type value_type;
+
+    /// Typedef of our own type
+    typedef btree_multiset<key_type, key_compare, traits, allocator_type> self_type;
 
     /// Implementation type of the btree_base
     typedef stx::btree<key_type, data_type, value_type, key_compare,
-                       traits, true, allocator_type, false> btree_impl;
+                       traits, true, allocator_type, true> btree_impl;
 
-    /// Function class comparing two value_type pairs.
+    /// Function class comparing two value_type keys.
     typedef typename btree_impl::value_compare value_compare;
 
     /// Size type used to count keys
@@ -120,9 +129,9 @@ public:
     /// this can differ from slots in each leaf.
     static const unsigned short innerslotmax = btree_impl::innerslotmax;
 
-    /// Computed B+ tree parameter: The minimum number of key/data slots used
-    /// in a leaf. If fewer slots are used, the leaf will be merged or slots
-    /// shifted from it's siblings.
+    /// Computed B+ tree parameter: The minimum number of key slots used in a
+    /// leaf. If fewer slots are used, the leaf will be merged or slots shifted
+    /// from it's siblings.
     static const unsigned short minleafslots = btree_impl::minleafslots;
 
     /// Computed B+ tree parameter: The minimum number of key slots used
@@ -170,34 +179,38 @@ public:
 
     /// Default constructor initializing an empty B+ tree with the standard key
     /// comparison function
-    explicit inline btree_multimap(const allocator_type& alloc = allocator_type())
+    explicit inline btree_multiset(const allocator_type& alloc = allocator_type())
         : tree(alloc)
     { }
 
     /// Constructor initializing an empty B+ tree with a special key
     /// comparison object
-    explicit inline btree_multimap(const key_compare& kcf,
+    explicit inline btree_multiset(const key_compare& kcf,
                                    const allocator_type& alloc = allocator_type())
         : tree(kcf, alloc)
     { }
 
     /// Constructor initializing a B+ tree with the range [first,last)
     template <class InputIterator>
-    inline btree_multimap(InputIterator first, InputIterator last,
+    inline btree_multiset(InputIterator first, InputIterator last,
                           const allocator_type& alloc = allocator_type())
-        : tree(first, last, alloc)
-    { }
+        : tree(alloc)
+    {
+        insert(first, last);
+    }
 
     /// Constructor initializing a B+ tree with the range [first,last) and a
     /// special key comparison object
     template <class InputIterator>
-    inline btree_multimap(InputIterator first, InputIterator last, const key_compare& kcf,
+    inline btree_multiset(InputIterator first, InputIterator last, const key_compare& kcf,
                           const allocator_type& alloc = allocator_type())
-        : tree(first, last, kcf, alloc)
-    { }
+        : tree(kcf, alloc)
+    {
+        insert(first, last);
+    }
 
     /// Frees up all used B+ tree memory pages
-    inline ~btree_multimap()
+    inline ~btree_multiset()
     { }
 
     /// Fast swapping of two identical B+ tree objects.
@@ -215,7 +228,7 @@ public:
         return tree.key_comp();
     }
 
-    /// Constant access to a constructed value_type comparison object. required
+    /// Constant access to a constructed value_type comparison object. Required
     /// by the STL
     inline value_compare value_comp() const
     {
@@ -234,7 +247,7 @@ public:
 public:
     // *** Fast Destruction of the B+ Tree
 
-    /// Frees all key/data pairs and all nodes of the tree
+    /// Frees all keys and all nodes of the tree
     void clear()
     {
         tree.clear();
@@ -302,13 +315,13 @@ public:
 public:
     // *** Access Functions to the Item Count
 
-    /// Return the number of key/data pairs in the B+ tree
+    /// Return the number of keys in the B+ tree
     inline size_type size() const
     {
         return tree.size();
     }
 
-    /// Returns true if there is at least one key/data pair in the B+ tree
+    /// Returns true if there is at least one key in the B+ tree
     inline bool empty() const
     {
         return tree.empty();
@@ -338,14 +351,14 @@ public:
     }
 
     /// Tries to locate a key in the B+ tree and returns an iterator to the
-    /// key/data slot if found. If unsuccessful it returns end().
+    /// key slot if found. If unsuccessful it returns end().
     iterator find(const key_type& key)
     {
         return tree.find(key);
     }
 
     /// Tries to locate a key in the B+ tree and returns an constant iterator
-    /// to the key/data slot if found. If unsuccessful it returns end().
+    /// to the key slot if found. If unsuccessful it returns end().
     const_iterator find(const key_type& key) const
     {
         return tree.find(key);
@@ -404,8 +417,7 @@ public:
     // *** B+ Tree Object Comparison Functions
 
     /// Equality relation of B+ trees of the same type. B+ trees of the same
-    /// size and equal elements (both key and data) are considered
-    /// equal. Beware of the random ordering of duplicate keys.
+    /// size and equal key (counts) are considered equal.
     inline bool operator == (const self_type& other) const
     {
         return (tree == other.tree);
@@ -445,7 +457,7 @@ public:
 public:
     /// *** Fast Copy: Assign Operator and Copy Constructors
 
-    /// Assignment operator. All the key/data pairs are copied
+    /// Assignment operator. All the keys are copied
     inline self_type& operator = (const self_type& other)
     {
         if (this != &other)
@@ -456,58 +468,39 @@ public:
     }
 
     /// Copy constructor. The newly initialized B+ tree object will contain a
-    /// copy or all key/data pairs.
-    inline btree_multimap(const btree_multimap& other)
+    /// copy of all keys.
+    inline btree_multiset(const btree_multiset& other)
         : tree(other.tree)
     { }
 
 public:
     // *** Public Insertion Functions
 
-    /// Attempt to insert a key/data pair into the B+ tree. As this tree allows
-    /// duplicates insertion never fails.
-    inline iterator insert(const value_type& x)
+    /// Attempt to insert a key into the B+ tree. As this set allows
+    /// duplicates, this function never fails.
+    inline iterator insert(const key_type& x)
     {
-        return tree.insert2(x.first, x.second).first;
+        return tree.insert2(x, data_type()).first;
     }
 
-    /// Attempt to insert a key/data pair into the B+ tree. Beware that if
-    /// key_type == data_type, then the template iterator insert() is called
-    /// instead. As this tree allows duplicates insertion never fails.
-    inline iterator insert(const key_type& key, const data_type& data)
-    {
-        return tree.insert2(key, data).first;
-    }
-
-    /// Attempt to insert a key/data pair into the B+ tree. This function is the
-    /// same as the other insert, however if key_type == data_type then the
-    /// non-template function cannot be called.  As this tree allows duplicates
-    /// insertion never fails.
-    inline iterator insert2(const key_type& key, const data_type& data)
-    {
-        return tree.insert2(key, data).first;
-    }
-
-    /// Attempt to insert a key/data pair into the B+ tree. The iterator hint
-    /// is currently ignored by the B+ tree insertion routine.
-    inline iterator insert(iterator hint, const value_type& x)
-    {
-        return tree.insert2(hint, x.first, x.second);
-    }
-
-    /// Attempt to insert a key/data pair into the B+ tree. The iterator hint is
+    /// Attempt to insert a key into the B+ tree. The iterator hint is
     /// currently ignored by the B+ tree insertion routine.
-    inline iterator insert2(iterator hint, const key_type& key, const data_type& data)
+    inline iterator insert(iterator hint, const key_type& x)
     {
-        return tree.insert2(hint, key, data);
+        return tree.insert2(hint, x, data_type());
     }
 
-    /// Attempt to insert the range [first,last) of value_type pairs into the B+
-    /// tree. Each key/data pair is inserted individually.
+    /// Attempt to insert the range [first,last) of key_type into the B+
+    /// tree. Each key is inserted individually.
     template <typename InputIterator>
     inline void insert(InputIterator first, InputIterator last)
     {
-        return tree.insert(first, last);
+        InputIterator iter = first;
+        while (iter != last)
+        {
+            insert(*iter);
+            ++iter;
+        }
     }
 
     /// Bulk load a sorted range [first,last). Loads items into leaves and
@@ -522,15 +515,14 @@ public:
 public:
     // *** Public Erase Functions
 
-    /// Erases one (the first) of the key/data pairs associated with the given
-    /// key.
+    /// Erases one (the first) entry of the given key.
     bool erase_one(const key_type& key)
     {
         return tree.erase_one(key);
     }
 
-    /// Erases all the key/data pairs associated with the given key. This is
-    /// implemented using erase_one() and thus not very efficient.
+    /// Erases all the entries of the given key. This is implemented using
+    /// erase_one() and thus not very efficient.
     size_type erase(const key_type& key)
     {
         return tree.erase(key);
@@ -543,8 +535,8 @@ public:
     }
 
 #ifdef BTREE_TODO
-    /// Erase all key/data pairs in the range [first,last). This function is
-    /// currently not implemented by the B+ Tree.
+    /// Erase all keys in the range [first,last). This function is currently
+    /// not implemented by the B+ Tree.
     void erase(iterator /* first */, iterator /* last */)
     {
         abort();
@@ -584,8 +576,8 @@ public:
 public:
     /// Dump the contents of the B+ tree out onto an ostream as a binary
     /// image. The image contains memory pointers which will be fixed when the
-    /// image is restored. For this to work your key_type and data_type must be
-    /// integral types and contain no pointers or references.
+    /// image is restored. For this to work your key_type must be an integral
+    /// type and contain no pointers or references.
     void dump(std::ostream& os) const
     {
         tree.dump(os);
@@ -593,8 +585,8 @@ public:
 
     /// Restore a binary image of a dumped B+ tree from an istream. The B+ tree
     /// pointers are fixed using the dump order. For dump and restore to work
-    /// your key_type and data_type must be integral types and contain no
-    /// pointers or references. Returns true if the restore was successful.
+    /// your key_type must be an integral type and contain no pointers or
+    /// references. Returns true if the restore was successful.
     bool restore(std::istream& is)
     {
         return tree.restore(is);
@@ -603,6 +595,6 @@ public:
 
 } // namespace stx
 
-#endif // !STX_STX_BTREE_MULTIMAP_H_HEADER
+#endif // !STX_STX_BTREE_MULTISET_H_HEADER
 
 /******************************************************************************/
