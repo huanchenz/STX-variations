@@ -3,7 +3,7 @@
 #include "btree_multimap.h"
 #include <stdint.h>
 
-#define TEST_SIZE 1000
+#define TEST_SIZE 10000
 #define VALUES_PER_KEY 10
 
 typedef stx::btree_multimap<uint64_t, uint64_t> btree_type;

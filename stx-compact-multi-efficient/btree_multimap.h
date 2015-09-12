@@ -356,6 +356,11 @@ public:
         return tree.find(key);
     }
 
+    hybrid_iterator find_hybrid(const key_type& key)
+    {
+        return tree.find_hybrid(key);
+    }
+
     /// Tries to locate a key in the B+ tree and returns an constant iterator
     /// to the key/data slot if found. If unsuccessful it returns end().
     const_iterator find(const key_type& key) const

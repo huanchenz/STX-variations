@@ -2821,7 +2821,14 @@ public:
 
     inline std::pair<hybrid_iterator, hybrid_iterator> equal_range_hybrid(const key_type& key)
     {
-        return std::pair<hybrid_iterator, hybrid_iterator>(lower_bound_hybrid(key), upper_bound_hybrid(key));
+      if (USE_BLOOM_FILTER) {
+	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
+	  iterator iter_lower = lower_bound_static(key);
+	  iterator iter_upper = upper_bound_static(key);
+	  return std::pair<hybrid_iterator, hybrid_iterator>(hybrid_iterator(NULL, 0, iter_lower.get_currnode(), iter_lower.get_currslot(), 1), hybrid_iterator(NULL, 0, iter_upper.get_currnode(), iter_upper.get_currslot(), 1));
+	}
+      }
+      return std::pair<hybrid_iterator, hybrid_iterator>(lower_bound_hybrid(key), upper_bound_hybrid(key));
     }
 
     /// Searches the B+ tree and returns both lower_bound() and upper_bound().

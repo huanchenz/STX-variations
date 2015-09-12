@@ -147,19 +147,22 @@ public:
 
     /// Number of slots in each leaf of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int leafslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(_Data)));
+    //static const int leafslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(_Data)));
+    static const int leafslots = BTREE_MAX(8, 512 / (sizeof(_Key) + sizeof(_Data)));
     //static const int leafslots = BTREE_MAX(8, 4096 / (sizeof(_Key) + sizeof(_Data)));
 
     /// Number of slots in each inner node of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int innerslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(void*)));
+    //static const int innerslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(void*)));
+    static const int innerslots = BTREE_MAX(8, 512 / (sizeof(_Key) + sizeof(void*)));
     //static const int innerslots = BTREE_MAX(8, 4096 / (sizeof(_Key) + sizeof(void*)));
 
     /// As of stx-btree-0.9, the code does linear search in find_lower() and
     /// find_upper() instead of binary_search, unless the node size is larger
     /// than this threshold. See notes at
     /// http://panthema.net/2013/0504-STX-B+Tree-Binary-vs-Linear-Search
-    static const size_t binsearch_threshold = 256;
+    //static const size_t binsearch_threshold = 256;
+    static const size_t binsearch_threshold = 512;
     //static const size_t binsearch_threshold = 4096;
 };
 
@@ -2833,7 +2836,14 @@ public:
     //huanchen
     inline std::pair<hybrid_iterator, hybrid_iterator> equal_range_hybrid(const key_type& key)
     {
-        return std::pair<hybrid_iterator, hybrid_iterator>(lower_bound_hybrid(key), upper_bound_hybrid(key));
+      if (USE_BLOOM_FILTER) {
+	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
+	  hybrid_iterator iter_lower = lower_bound_static(key);
+	  hybrid_iterator iter_upper = upper_bound_static(key);
+	  return std::pair<hybrid_iterator, hybrid_iterator>(hybrid_iterator(NULL, 0, iter_lower.get_currnode_static(), iter_lower.get_currslot_static(), iter_lower.get_currdata_pos_static(), 1), hybrid_iterator(NULL, 0, iter_upper.get_currnode_static(), iter_upper.get_currslot_static(), iter_upper.get_currdata_pos_static(), 1));
+	}
+      }
+      return std::pair<hybrid_iterator, hybrid_iterator>(lower_bound_hybrid(key), upper_bound_hybrid(key));
     }
 
     /// Searches the B+ tree and returns both lower_bound() and upper_bound().
@@ -5034,7 +5044,8 @@ public:
               node_count++;
             }
 	    
-	    if (currkey != ln->slotkey[slot]) {
+	    //if (currkey != ln->slotkey[slot]) {
+	    if (!key_equal(currkey, ln->slotkey[slot])) {
 	      ln_static->slotkey[curslot] = currkey;
 	      int data_size = data_count * sizeof(data_type);
 	      ln_static->slotdata[curslot] = (data_type*)malloc(data_size);
@@ -5054,6 +5065,15 @@ public:
           free_node(ln);
           ln = next_ln;
         } //END while
+
+	if (curslot >= leafslotmax) {
+	  leaf_multidata_node *new_ln = allocate_leaf_static();
+	  ln_static->nextleaf = new_ln;
+	  new_ln->prevleaf = ln_static;
+	  ln_static = new_ln;
+	  curslot = 0;
+	  node_count++;
+	}
 
 	ln_static->slotkey[curslot] = currkey;
 	int data_size = data_count * sizeof(data_type);
@@ -5090,7 +5110,8 @@ public:
               node_count++;
             }
 	    if (key_lessequal(ln->slotkey[slot], ln_static->slotkey[slot_static])) {
-	      if (currkey != ln->slotkey[slot]) {
+	      //if (currkey != ln->slotkey[slot]) {
+	      if (!key_equal(currkey, ln->slotkey[slot])) {
 		ln_new->slotkey[slot_new] = currkey;
 		int data_size = data_count * sizeof(data_type);
 		ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
@@ -5108,7 +5129,8 @@ public:
 	      m_stats_static.itemcount++;
             }
             else {
-	      if (currkey != ln_static->slotkey[slot_static]) {
+	      //if (currkey != ln_static->slotkey[slot_static]) {
+	      if (!key_equal(currkey, ln_static->slotkey[slot_static])) {
 		ln_new->slotkey[slot_new] = currkey;
 		int data_size = data_count * sizeof(data_type);
 		ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
@@ -5157,7 +5179,8 @@ public:
               slot_new = 0;
               node_count++;
             }
-	    if (currkey != ln->slotkey[slot]) {
+	    //if (currkey != ln->slotkey[slot]) {
+	    if (!key_equal(currkey, ln->slotkey[slot])) {
 	      ln_new->slotkey[slot_new] = currkey;
 	      int data_size = data_count * sizeof(data_type);
 	      ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
@@ -5190,7 +5213,8 @@ public:
               slot_new = 0;
               node_count++;
             }
-	    if (currkey != ln_static->slotkey[slot_static]) {
+	    //if (currkey != ln_static->slotkey[slot_static]) {
+	    if (!key_equal(currkey, ln_static->slotkey[slot_static])) {
 	      ln_new->slotkey[slot_new] = currkey;
 	      int data_size = data_count * sizeof(data_type);
 	      ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
@@ -5216,6 +5240,15 @@ public:
           ln_static = ln_static_temp;
 	  slot_static = 0;
         }
+
+	if (slot_new >= leafslotmax) {
+	  leaf_multidata_node *ln_next = allocate_leaf_static();
+	  ln_new->nextleaf = ln_next;
+	  ln_next->prevleaf = ln_new;
+	  ln_new = ln_next;
+	  slot_new = 0;
+	  node_count++;
+	}
 
 	ln_new->slotkey[slot_new] = currkey;
 	int data_size = data_count * sizeof(data_type);
