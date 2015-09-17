@@ -339,6 +339,11 @@ public:
         return tree.get_stats();
     }
 
+    //huanchen-stats
+    inline const uint32_t get_static_data_size() const {
+      return tree.get_static_data_size();
+    }
+
 public:
     // *** Standard Access Functions Querying the Tree by Descending to a Leaf
 

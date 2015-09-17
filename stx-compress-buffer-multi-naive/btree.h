@@ -62,7 +62,7 @@
 #define BITS_PER_KEY 8
 #define K 2
 
-#define BUFFER_SIZE 65535
+#define BUFFER_SIZE 10000
 #define INVALID_BUFFER_IDX 65535
 
 // *** Debugging Macros
@@ -150,11 +150,13 @@ public:
     /// Number of slots in each leaf of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
     static const int leafslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(_Data))); //page size = 256
+    //static const int leafslots = BTREE_MAX(8, 512 / (sizeof(_Key) + sizeof(_Data))); //page size = 256
     //static const int leafslots = BTREE_MAX(8, 4096 / (sizeof(_Key) + sizeof(_Data))); //page size = 4096
 
     /// Number of slots in each inner node of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
     static const int innerslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(void*))); //page size = 256
+    //static const int innerslots = BTREE_MAX(8, 512 / (sizeof(_Key) + sizeof(void*))); //page size = 256
     //static const int innerslots = BTREE_MAX(8, 4096 / (sizeof(_Key) + sizeof(void*))); //page size = 4096
 
     /// As of stx-btree-0.9, the code does linear search in find_lower() and
@@ -162,6 +164,7 @@ public:
     /// than this threshold. See notes at
     /// http://panthema.net/2013/0504-STX-B+Tree-Binary-vs-Linear-Search
     static const size_t binsearch_threshold = 256; //page size = 256
+    //static const size_t binsearch_threshold = 512; //page size = 256
     //static const size_t binsearch_threshold = 4096; //page size = 4096
 };
 
@@ -1782,6 +1785,15 @@ public:
 	  memcpy(&currnode_static, l_static, sizeof(leaf_node));
 	}
 
+	inline void print () {
+	  print_node(std::cout, currnode);
+	  std::cout << "slot = " << currslot << "\n";
+	  std::cout << "---------------------------------------\n";
+	  print_node(std::cout, &currnode_static);
+	  std::cout << "slot_static = " << currslot_static << "\n";
+	  std::cout << "=======================================\n";
+	}
+
         inline leaf_node *get_currnode() {
           return currnode;
         }
@@ -2111,7 +2123,7 @@ private:
     /// Other small statistics about the B+ tree
     tree_stats m_stats;
     tree_stats m_stats_static; //h
-    uint32_t m_compressed_data_size; //huanchen-comrpess
+    uint64_t m_compressed_data_size; //huanchen-comrpess
 
     /// Key comparison object. More comparison functions are generated from
     /// this < relation.
@@ -2960,7 +2972,7 @@ public:
     }
 
     //huanchen-compress
-    inline const uint32_t get_compressed_data_size() const
+    inline const uint64_t get_compressed_data_size() const
     {
       return m_compressed_data_size;
     }
@@ -3416,16 +3428,19 @@ public:
 	}
 
         int slot = find_upper(leaf, key);
-	if (slot >= leaf->slotuse)
+	if ((slot >= leaf->slotuse) && (leaf_compressed != m_tailleaf_static))
 	  slot = leaf->slotuse - 1;
 	static_iterator iter = static_iterator(leaf_compressed, slot, m_leaf_buffer);
-	while (!iter.isEnd() && (iter.key() == key)) {
+	//while (!iter.isEnd() && (iter.key() == key)) {
+	while (!iter.isEnd() && (key_equal(iter.key(), key))) {
 	  iter++;
 	}
+	/*
 	if (!iter.isEnd()) {
 	  if (leaf->slotdata[slot] == 0)
 	    iter++;
 	}
+	*/
         return iter;
     }
 
@@ -4248,6 +4263,7 @@ public:
       free(iter.get_currnode_static_compressed()->data);
       iter.get_currnode_static_compressed()->data = (char*)malloc(str.size());
       memcpy(iter.get_currnode_static_compressed()->data, str.data(), str.size());
+      iter.get_currnode_static_compressed()->buffer_idx = 65535;
       m_compressed_data_size += iter.get_currnode_static_compressed()->size;
     }
 

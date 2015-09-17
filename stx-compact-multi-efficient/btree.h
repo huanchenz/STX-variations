@@ -1763,6 +1763,9 @@ private:
     char* bloom_filter;
     size_t bits;
 
+    //huanchen-stats
+    uint32_t static_data_size;
+
 public:
     // *** Constructors and Destructor
 
@@ -1778,6 +1781,8 @@ public:
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
       else
 	bits = 0;
+
+      static_data_size = 0;
 
     }
 
@@ -1796,6 +1801,8 @@ public:
       else
 	bits = 0;
 
+      static_data_size = 0;
+
     }
 
     /// Constructor initializing a B+ tree with the range [first,last). The
@@ -1813,6 +1820,8 @@ public:
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
       else
 	bits = 0;
+
+      static_data_size = 0;
 
       insert(first, last);
     }
@@ -1833,6 +1842,8 @@ public:
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
       else
 	bits = 0;
+
+      static_data_size = 0;
 
       insert(first, last);
     }
@@ -2456,6 +2467,12 @@ public:
     inline const struct tree_stats & get_stats_static() const
     {
         return m_stats_static;
+    }
+
+    //huanchen-stats
+    inline const uint32_t get_static_data_size() const
+    {
+      return static_data_size;
     }
 
 public:
@@ -5027,6 +5044,7 @@ public:
       data_type data_buf[MAX_VALUES_PER_KEY];
       int data_count = 0;
       key_type currkey = ln->slotkey[0];
+      static_data_size = 0;
 
       //merge leaves
       if (m_root_static == NULL) {
@@ -5049,6 +5067,7 @@ public:
 	      ln_static->slotkey[curslot] = currkey;
 	      int data_size = data_count * sizeof(data_type);
 	      ln_static->slotdata[curslot] = (data_type*)malloc(data_size);
+	      static_data_size += data_size;
 	      memcpy(ln_static->slotdata[curslot], data_buf, data_size);
 	      ln_static->slotdata_count[curslot] = data_count;
 	      ln_static->slotuse++;
@@ -5078,6 +5097,7 @@ public:
 	ln_static->slotkey[curslot] = currkey;
 	int data_size = data_count * sizeof(data_type);
 	ln_static->slotdata[curslot] = (data_type*)malloc(data_size);
+	static_data_size += data_size;
 	memcpy(ln_static->slotdata[curslot], data_buf, data_size);
 	ln_static->slotdata_count[curslot] = data_count;
 	ln_static->slotuse++;
@@ -5115,6 +5135,7 @@ public:
 		ln_new->slotkey[slot_new] = currkey;
 		int data_size = data_count * sizeof(data_type);
 		ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
+		static_data_size += data_size;
 		memcpy(ln_new->slotdata[slot_new], data_buf, data_size);
 		ln_new->slotdata_count[slot_new] = data_count;
 		ln_new->slotuse++;
@@ -5134,6 +5155,7 @@ public:
 		ln_new->slotkey[slot_new] = currkey;
 		int data_size = data_count * sizeof(data_type);
 		ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
+		static_data_size += data_size;
 		memcpy(ln_new->slotdata[slot_new], data_buf, data_size);
 		ln_new->slotdata_count[slot_new] = data_count;
 		ln_new->slotuse++;
@@ -5184,6 +5206,7 @@ public:
 	      ln_new->slotkey[slot_new] = currkey;
 	      int data_size = data_count * sizeof(data_type);
 	      ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
+	      static_data_size += data_size;
 	      memcpy(ln_new->slotdata[slot_new], data_buf, data_size);
 	      ln_new->slotdata_count[slot_new] = data_count;
 	      ln_new->slotuse++;
@@ -5218,6 +5241,7 @@ public:
 	      ln_new->slotkey[slot_new] = currkey;
 	      int data_size = data_count * sizeof(data_type);
 	      ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
+	      static_data_size += data_size;
 	      memcpy(ln_new->slotdata[slot_new], data_buf, data_size);
 	      ln_new->slotdata_count[slot_new] = data_count;
 	      ln_new->slotuse++;
@@ -5253,6 +5277,7 @@ public:
 	ln_new->slotkey[slot_new] = currkey;
 	int data_size = data_count * sizeof(data_type);
 	ln_new->slotdata[slot_new] = (data_type*)malloc(data_size);
+	static_data_size += data_size;
 	memcpy(ln_new->slotdata[slot_new], data_buf, data_size);
 	ln_new->slotdata_count[slot_new] = data_count;
 	ln_new->slotuse++;

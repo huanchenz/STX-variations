@@ -339,6 +339,99 @@ public:
         return tree.get_stats();
     }
 
+    //huanchen
+    inline const tree_stats & get_stats_static() const
+    {
+        return tree.get_stats_static();
+    }
+
+    inline const size_t get_num_inner() const
+    {
+        return tree.get_num_inner();
+    }
+
+    inline const size_t get_num_leaves() const
+    {
+        return tree.get_num_leaves();
+    }
+
+    inline const size_t get_num_inner_static() const
+    {
+        return tree.get_num_inner_static();
+    }
+
+    inline const size_t get_num_leaves_static() const
+    {
+        return tree.get_num_leaves_static();
+    }
+
+    inline const size_t get_bloom_filter_size() const
+    {
+        return tree.get_bloom_filter_size();
+    }
+
+    //huanchen-compress
+    inline const uint64_t get_compressed_data_size() const
+    {
+        return tree.get_compressed_data_size();
+    }
+
+    inline const int get_leaf_buffer_size() const
+    {
+        return tree.get_leaf_buffer_size();
+    }
+
+    //huanchen-stats
+    inline const uint32_t get_leaf_size() const
+    {
+        return tree.get_leaf_size();
+    }
+
+    inline const uint32_t get_leaf_static_size() const
+    {
+        return tree.get_leaf_static_size();
+    }
+
+    inline const uint32_t get_inner_size() const
+    {
+        return tree.get_inner_size();
+    }
+
+    inline const uint32_t get_inner_static_size() const
+    {
+        return tree.get_inner_static_size();
+    }
+
+    inline const uint32_t get_compressed_size() const
+    {
+        return tree.get_compressed_size();
+    }
+
+    inline const uint32_t get_leaf_dealloc_size() const
+    {
+        return tree.get_leaf_dealloc_size();
+    }
+
+    inline const uint32_t get_leaf_static_dealloc_size() const
+    {
+        return tree.get_leaf_static_dealloc_size();
+    }
+
+    inline const uint32_t get_inner_dealloc_size() const
+    {
+        return tree.get_inner_dealloc_size();
+    }
+
+    inline const uint32_t get_inner_static_dealloc_size() const
+    {
+        return tree.get_inner_static_dealloc_size();
+    }
+
+    inline const uint32_t get_compressed_dealloc_size() const
+    {
+        return tree.get_compressed_dealloc_size();
+    }
+
 public:
     // *** Standard Access Functions Querying the Tree by Descending to a Leaf
 
@@ -354,6 +447,11 @@ public:
     iterator find(const key_type& key)
     {
         return tree.find(key);
+    }
+
+    hybrid_iterator find_hybrid(const key_type& key)
+    {
+        return tree.find_hybrid(key);
     }
 
     /// Tries to locate a key in the B+ tree and returns an constant iterator
