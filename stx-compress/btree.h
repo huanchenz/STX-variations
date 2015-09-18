@@ -58,6 +58,7 @@
 #define BTREE_MERGE_RATIO 10
 
 #define USE_BLOOM_FILTER 1
+#define USE_BLOOM_FILTER_STATIC 1
 #define LITTLEENDIAN 1
 #define BITS_PER_KEY 8
 #define K 2
@@ -146,19 +147,22 @@ public:
 
     /// Number of slots in each leaf of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int leafslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(_Data))); //page size = 256
+    //static const int leafslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(_Data))); //page size = 256
+    static const int leafslots = BTREE_MAX(8, 512 / (sizeof(_Key) + sizeof(_Data))); //page size = 256
     //static const int leafslots = BTREE_MAX(8, 4096 / (sizeof(_Key) + sizeof(_Data))); //page size = 4096
 
     /// Number of slots in each inner node of the tree. Estimated so that each node
     /// has a size of about 256 bytes.
-    static const int innerslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(void*))); //page size = 256
+    //static const int innerslots = BTREE_MAX(8, 256 / (sizeof(_Key) + sizeof(void*))); //page size = 256
+    static const int innerslots = BTREE_MAX(8, 512 / (sizeof(_Key) + sizeof(void*))); //page size = 256
     //static const int innerslots = BTREE_MAX(8, 4096 / (sizeof(_Key) + sizeof(void*))); //page size = 4096
 
     /// As of stx-btree-0.9, the code does linear search in find_lower() and
     /// find_upper() instead of binary_search, unless the node size is larger
     /// than this threshold. See notes at
     /// http://panthema.net/2013/0504-STX-B+Tree-Binary-vs-Linear-Search
-    static const size_t binsearch_threshold = 256; //page size = 256
+    //static const size_t binsearch_threshold = 256; //page size = 256
+    static const size_t binsearch_threshold = 512; //page size = 256
     //static const size_t binsearch_threshold = 4096; //page size = 4096
 };
 
@@ -1933,7 +1937,9 @@ private:
     allocator_type m_allocator;
 
     char* bloom_filter;
+    char* bloom_filter_static;
     size_t bits;
+    size_t bits_static;
 
     //huanchen-stats
     uint32_t leaf_size;
@@ -1965,6 +1971,11 @@ public:
       else
 	bits = 0;
 
+      if (USE_BLOOM_FILTER_STATIC)
+	bloom_filter_static = CreateEmptyFilter_static(BTREE_MERGE_THRESHOLD);
+      else
+	bits_static = 0;
+
       leaf_size = 0;
       leaf_static_size = 0;
       inner_size = 0;
@@ -1993,6 +2004,11 @@ public:
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
       else
 	bits = 0;
+
+      if (USE_BLOOM_FILTER_STATIC)
+	bloom_filter_static = CreateEmptyFilter_static(BTREE_MERGE_THRESHOLD);
+      else
+	bits_static = 0;
 
       leaf_size = 0;
       leaf_static_size = 0;
@@ -2023,6 +2039,11 @@ public:
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
       else
 	bits = 0;
+
+      if (USE_BLOOM_FILTER_STATIC)
+	bloom_filter_static = CreateEmptyFilter_static(BTREE_MERGE_THRESHOLD);
+      else
+	bits_static = 0;
 
       leaf_size = 0;
       leaf_static_size = 0;
@@ -2056,6 +2077,11 @@ public:
       else
 	bits = 0;
 
+      if (USE_BLOOM_FILTER_STATIC)
+	bloom_filter_static = CreateEmptyFilter_static(BTREE_MERGE_THRESHOLD);
+      else
+	bits_static = 0;
+
       leaf_size = 0;
       leaf_static_size = 0;
       inner_size = 0;
@@ -2078,6 +2104,9 @@ public:
       //bloom filter
       if (USE_BLOOM_FILTER)
 	free(bloom_filter);
+
+      if (USE_BLOOM_FILTER_STATIC)
+	free(bloom_filter_static);
 
       clear();
       clear_static();
@@ -2761,7 +2790,7 @@ public:
 
     inline const size_t get_bloom_filter_size() const
     {
-        return bits/8;
+        return bits/8 + bits_static/8;
     }
 
     //huanchen-compress
@@ -2833,6 +2862,10 @@ public:
     /// (find(k) != end()) or (count() != 0).
     bool exists(const key_type& key) const
     {
+      if (USE_BLOOM_FILTER) {
+	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter))
+	  return false;
+      }
         const node* n = m_root;
         if (!n) return false;
 
@@ -2853,6 +2886,10 @@ public:
     //huanchen-compress
     bool exists_static(const key_type& key) const
     {
+      if (USE_BLOOM_FILTER_STATIC) {
+	if ((m_stats_static.itemcount == 0) || !KeyMayMatch_static(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter_static))
+	  return false;
+      }
         const node* n = m_root_static;
         if (!n) return false;
 
@@ -2875,11 +2912,6 @@ public:
 
     bool exists_hybrid(const key_type& key) const
     {
-      if (USE_BLOOM_FILTER) {
-	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
-	  return exists_static(key);
-	}
-      }
       return exists(key) || exists_static(key);
     }
 
@@ -2887,6 +2919,11 @@ public:
     /// key/data slot if found. If unsuccessful it returns end().
     iterator find(const key_type& key)
     {
+      if (USE_BLOOM_FILTER) {
+	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
+	  return end();
+	}
+      }
         node* n = m_root;
         if (!n) return end();
 
@@ -2908,6 +2945,11 @@ public:
     //huanchen-compress
     hybrid_iterator find_static(const key_type& key)
     {
+      if (USE_BLOOM_FILTER_STATIC) {
+	if ((m_stats_static.itemcount == 0) || !KeyMayMatch_static(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter_static)) {
+	  return hybrid_end();
+	}
+      }
         node* n = m_root_static;
         if (!n) return hybrid_end();
 
@@ -2932,13 +2974,6 @@ public:
     hybrid_iterator find_hybrid(const key_type& key)
     {
       iterator key_iter;
-      //bloom filter
-      if (USE_BLOOM_FILTER) {
-	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
-	  return find_static(key);
-	}
-      }
-
       key_iter = find(key);
       if (key_iter == end()) {
         return find_static(key);
@@ -3902,6 +3937,11 @@ public:
     /// key.
     bool erase_one(const key_type& key)
     {
+      if (USE_BLOOM_FILTER) {
+	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
+	  return false;
+	}
+      }
         BTREE_PRINT("btree::erase_one(" << key << ") on btree size " << size());
 
         if (selfverify) verify();
@@ -3923,6 +3963,11 @@ public:
 
     //huanchen
     bool erase_one_static(const key_type& key) {
+      if (USE_BLOOM_FILTER_STATIC) {
+	if ((m_stats_static.itemcount == 0) || !KeyMayMatch_static(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter_static)) {
+	  return false;
+	}
+      }
       hybrid_iterator iter = find_static(key);
       if (iter.isEnd()) {
 	return false;
@@ -3942,17 +3987,7 @@ public:
     }
 
     bool erase_one_hybrid(const key_type& key) {
-      if (USE_BLOOM_FILTER) {
-	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
-	  return erase_one_static(key);
-	}
-      }
-
-      bool erase_success = erase_one(key);
-      if (!erase_success) {
-	erase_success = erase_one_static(key);
-      }
-      return erase_success;
+      return erase_one(key) || erase_one_static(key);
     }
 
     /// Erases all the key/data pairs associated with the given key. This is
@@ -5333,6 +5368,11 @@ private:
     //huanchen===================================================================================
 public:
     void merge() {
+      //bloom filter
+      if (USE_BLOOM_FILTER_STATIC) {
+	free(bloom_filter_static);
+	bloom_filter_static = CreateEmptyFilter_static(m_stats_static.itemcount + m_stats.itemcount);
+      }
       leaf_node *ln = m_headleaf; //dynamic leaf cursor
       compressed_node *ln_static = m_headleaf_static; //static leaf cursor
       int curslot = 0; //static leaf slot cursor
@@ -5372,6 +5412,8 @@ public:
             new_ln->slotdata[curslot] = ln->slotdata[slot];
             new_ln->slotuse++;
 	    ln_static->slotuse++;
+	    if (USE_BLOOM_FILTER_STATIC)
+	      InsertToFilter_static(reinterpret_cast<const char*>(&(new_ln->slotkey[curslot])), sizeof(key_type), bloom_filter_static);
             curslot++;
             m_stats_static.itemcount++;
           } //END for
@@ -5448,6 +5490,8 @@ public:
               slot++;
 	      ln_new->slotuse++;
 	      ln_new_leaf->slotuse++;
+	      if (USE_BLOOM_FILTER_STATIC)
+		InsertToFilter_static(reinterpret_cast<const char*>(&(ln_new_leaf->slotkey[slot_new])), sizeof(key_type), bloom_filter_static);
 	      slot_new++;
 	      m_stats_static.itemcount++;
             }
@@ -5457,6 +5501,8 @@ public:
               slot_static++;
 	      ln_new->slotuse++;
 	      ln_new_leaf->slotuse++;
+	      if (USE_BLOOM_FILTER_STATIC)
+		InsertToFilter_static(reinterpret_cast<const char*>(&(ln_new_leaf->slotkey[slot_new])), sizeof(key_type), bloom_filter_static);
 	      slot_new++;
 	      m_stats_static.itemcount++;
             }
@@ -5501,6 +5547,8 @@ public:
             ln_new_leaf->slotdata[slot_new] = ln->slotdata[slot];
             ln_new->slotuse++;
             ln_new_leaf->slotuse++;
+	    if (USE_BLOOM_FILTER_STATIC)
+	      InsertToFilter_static(reinterpret_cast<const char*>(&(ln_new_leaf->slotkey[slot_new])), sizeof(key_type), bloom_filter_static);
             slot_new++;
             slot++;
             m_stats_static.itemcount++;
@@ -5540,6 +5588,8 @@ public:
 
             ln_new->slotuse++;
             ln_new_leaf->slotuse++;
+	    if (USE_BLOOM_FILTER_STATIC)
+	      InsertToFilter_static(reinterpret_cast<const char*>(&(ln_new_leaf->slotkey[slot_new])), sizeof(key_type), bloom_filter_static);
             slot_new++;
             slot_static++;
             m_stats_static.itemcount++;
@@ -5734,6 +5784,16 @@ public:
     return array;
   }
 
+  char* CreateEmptyFilter_static(int n) {
+    bits_static = n * BITS_PER_KEY;
+    size_t bytes = (bits_static + 7) / 8;
+    bits_static = bytes * 8;
+
+    char* array = (char*)malloc(bytes);
+    memset((void*)array, '\0', bytes);
+    return array;
+  }
+
   void InsertToFilter(const char* data, size_t n, char* filter) {
     uint32_t h = BloomHash(data, n);
     const uint32_t delta = (h >> 17) | (h << 15);
@@ -5744,11 +5804,33 @@ public:
     }
   }
 
+  void InsertToFilter_static(const char* data, size_t n, char* filter) {
+    uint32_t h = BloomHash(data, n);
+    const uint32_t delta = (h >> 17) | (h << 15);
+    for (size_t j = 0; j < K; j++) {
+      const uint32_t bitpos = h% bits_static;
+      filter[bitpos/8] |= (1 << (bitpos % 8));
+      h += delta;
+    }
+  }
+
   bool KeyMayMatch(const char* data, size_t n, char* filter) {
     uint32_t h = BloomHash(data, n);
     const uint32_t delta = (h >> 17) | (h << 15);
     for (size_t j = 0; j < K; j++) {
       const uint32_t bitpos = h % bits;
+      if ((filter[bitpos/8] & (1 << (bitpos % 8))) == 0)
+	return false;
+      h += delta;
+    }
+    return true;
+  }
+
+  bool KeyMayMatch_static(const char* data, size_t n, char* filter) {
+    uint32_t h = BloomHash(data, n);
+    const uint32_t delta = (h >> 17) | (h << 15);
+    for (size_t j = 0; j < K; j++) {
+      const uint32_t bitpos = h % bits_static;
       if ((filter[bitpos/8] & (1 << (bitpos % 8))) == 0)
 	return false;
       h += delta;
