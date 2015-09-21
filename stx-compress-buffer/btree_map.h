@@ -645,7 +645,8 @@ public:
     /// is already present.
     inline std::pair<iterator, bool> insert(const value_type& x)
     {
-        return tree.insert2(x.first, x.second);
+      //return tree.insert2(x.first, x.second);
+      return tree.update2(x.first, x.second);
     }
 
     /// Attempt to insert a key/data pair into the B+ tree. Beware that if
