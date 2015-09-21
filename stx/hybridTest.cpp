@@ -61,6 +61,19 @@ int main() {
     key++;
   }
 
+  key = 1;
+  value = 1;
+  while (key < TEST_SIZE) {
+    std::pair<btree_type::iterator, bool> retval
+      = btree.insert(key, value);
+    if (retval.second == true) {
+      std::cout << "DUPLICATE CHECK FAIL " << key << "\n";
+      //return -1;
+    }
+    key += 1;
+    value += 1;
+  }
+
   std::cout << "\n$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$\n";
 
   key = 1;

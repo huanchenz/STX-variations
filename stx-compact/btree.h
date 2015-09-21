@@ -3058,6 +3058,10 @@ private:
         merge();
       }
 
+      if (find_static(key) != static_end()) {
+	return std::pair<iterator, bool>(static_end(), false);
+      }
+
         node* newchild = NULL;
         key_type newkey = key_type();
 
