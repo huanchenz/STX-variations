@@ -1819,6 +1819,8 @@ public:
 	}
 
 	inline bool isEnd() {
+	  if ((currnode == NULL) && (currnode_static_compressed == NULL))
+	    return true;
 	  if (currnode == NULL)
 	    return (currnode_static_compressed->nextleaf == NULL) && (currslot_static == currnode_static.slotuse);
 	  if (currnode_static_compressed == NULL)
@@ -3716,7 +3718,8 @@ private:
         merge();
       }
 
-      if (find_static(key) != hybrid_end()) {
+      //if (find_static(key) != hybrid_end()) {
+      if (!find_static(key).isEnd()) {
 	return std::pair<iterator, bool>(end(), false);
       }
 
