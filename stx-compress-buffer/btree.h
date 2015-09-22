@@ -2923,7 +2923,7 @@ public:
     /// Return the number of key/data pairs in the B+ tree
     inline size_type size() const
     {
-        return m_stats.itemcount;
+        return m_stats.itemcount + m_stats_static.itemcount;
     }
 
     //huanchen
