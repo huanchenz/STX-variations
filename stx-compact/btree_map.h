@@ -486,7 +486,7 @@ public:
         return tree.upper_bound_static(key);
     }
 
-    iterator upper_bound_hybrid(const key_type& key)
+    hybrid_iterator upper_bound_hybrid(const key_type& key)
     {
         return tree.upper_bound_hybrid(key);
     }
