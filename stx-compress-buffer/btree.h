@@ -1812,6 +1812,10 @@ public:
           return currslot_static;
         }
 
+	inline unsigned short get_currtree() {
+	  return currtree;
+	}
+
         inline leaf_buffer* get_buffer() {
           return buffer;
         }
@@ -2125,7 +2129,7 @@ private:
     /// Other small statistics about the B+ tree
     tree_stats m_stats;
     tree_stats m_stats_static; //h
-    uint32_t m_compressed_data_size; //huanchen-comrpess
+    uint64_t m_compressed_data_size; //huanchen-comrpess
 
     /// Key comparison object. More comparison functions are generated from
     /// this < relation.
