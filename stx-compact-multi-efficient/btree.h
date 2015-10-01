@@ -1378,6 +1378,8 @@ public:
 
         unsigned short currtree; //0 = dynamic, 1 = static
 
+	key_compare kless;
+
         /// Friendly to the const_iterator, so it may access the two data items
         /// directly.
         friend class iterator;
@@ -1410,16 +1412,20 @@ public:
 
         /// Default-Constructor of a mutable iterator
         inline hybrid_iterator()
-          : currnode(NULL), currnode_static(NULL), currslot(0), currslot_static(0), currdata_pos_static(0), currtree(0)
+          : currnode(NULL), currnode_static(NULL), currslot(0), currslot_static(0), currdata_pos_static(0), currtree(0), kless(key_compare())
+        { }
+
+        inline hybrid_iterator(key_compare kl)
+          : currnode(NULL), currnode_static(NULL), currslot(0), currslot_static(0), currdata_pos_static(0), currtree(0), kless(kl)
         { }
 
         /// Initializing-Constructor of a mutable iterator
-        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::leaf_multidata_node* l_static, short s_static, unsigned short ctree)
-          : currnode(l), currslot(s), currnode_static(l_static), currslot_static(s_static), currdata_pos_static(0), currtree(ctree)
+        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::leaf_multidata_node* l_static, short s_static, unsigned short ctree, key_compare kl)
+          : currnode(l), currslot(s), currnode_static(l_static), currslot_static(s_static), currdata_pos_static(0), currtree(ctree), kless(kl)
         { }
 
-        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::leaf_multidata_node* l_static, short s_static, unsigned short dpos, unsigned short ctree)
-          : currnode(l), currslot(s), currnode_static(l_static), currslot_static(s_static), currdata_pos_static(dpos), currtree(ctree)
+        inline hybrid_iterator(typename btree::leaf_node* l, short s, typename btree::leaf_multidata_node* l_static, short s_static, unsigned short dpos, unsigned short ctree, key_compare kl)
+          : currnode(l), currslot(s), currnode_static(l_static), currslot_static(s_static), currdata_pos_static(dpos), currtree(ctree), kless(kl)
         { }
 
         inline leaf_node *get_currnode() {
@@ -1446,7 +1452,27 @@ public:
           return currtree;
         }
 
-	inline bool isBegin() {
+	inline void print() {
+	  std::cout << "==============================================\n";
+	  if (currnode != NULL) {
+	    std::cout << "currnode slotuse = " << currnode->slotuse << "\n";
+	    std::cout << "currslot = " << currslot << "\n";
+	  }
+	  if (currnode_static != NULL) {
+	    std::cout << "currnode_static slotuse = " << currnode_static->slotuse << "\n";
+	    std::cout << "currslot_static = " << currslot_static << "\n";
+	    std::cout << "currdata_pos_static = " << currdata_pos_static << "\n";
+	  }
+	  std::cout << "currtree = " << currtree << "\n";
+	}
+
+	inline bool isComplete() {
+	  return (currnode != NULL) && (currnode_static != NULL);
+	}
+
+	inline bool isBegin() const {
+	  if ((currnode == NULL) && (currnode_static == NULL))
+	    return true;
 	  if (currnode == NULL)
 	    return (currnode_static->prevleaf == NULL) && (currslot_static == -1);
 	  if (currnode_static == NULL)
@@ -1454,7 +1480,9 @@ public:
 	  return (currnode->prevleaf == NULL) && (currslot == -1) && (currnode_static->prevleaf == NULL) && (currslot_static == -1);
 	}
 
-	inline bool isEnd() {
+	inline bool isEnd() const {
+	  if ((currnode == NULL) && (currnode_static == NULL))
+	    return true;
 	  if (currnode == NULL)
 	    return (currnode_static->nextleaf == NULL) && (currslot_static == currnode_static->slotuse);
 	  if (currnode_static == NULL)
@@ -1543,7 +1571,7 @@ public:
 	  else if ((currnode_static == NULL) || (currslot_static == currnode_static->slotuse)) {
 	    currtree = 0;
 	  }
-	  else if (key_compare()(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
+	  else if (kless(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
 	    currtree = 1;
 	  }
 	  else {
@@ -1600,7 +1628,7 @@ public:
           else if ((currnode_static == NULL) || (currslot_static == -1)) {
             currtree = 0;
           }
-          else if (key_compare()(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
+          else if (kless(currnode_static->slotkey[currslot_static], currnode->slotkey[currslot])) {
             currtree = 0;
           }
           else {
@@ -1613,7 +1641,7 @@ public:
         {
 	  do {
 	    moveToNext();
-	  } while((currslot_static != currnode_static->slotuse) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));
+	  } while((currnode_static != NULL) && (currslot_static != currnode_static->slotuse) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));
 
           return *this;
         }
@@ -1625,7 +1653,7 @@ public:
 
 	  do {
 	    moveToNext();
-	  } while((currslot_static != currnode_static->slotuse) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));
+	  } while((currnode_static != NULL) && (currslot_static != currnode_static->slotuse) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));
 
           return tmp;
         }
@@ -1635,7 +1663,7 @@ public:
         {
 	  do {
 	    moveToPrev();
-	  } while((currslot_static != -1) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));	  
+	  } while((currnode_static != NULL) && (currslot_static != -1) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));	  
 
           return *this;
         }
@@ -1647,7 +1675,7 @@ public:
 
 	  do {
 	    moveToPrev();
-	  } while((currslot_static != -1) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));	  
+	  } while((currnode_static != NULL) && (currslot_static != -1) && (currnode_static->slotdata[currslot_static][currdata_pos_static] == (data_type)0));	  
 
           return tmp;
         }
@@ -1655,6 +1683,8 @@ public:
         /// Equality of iterators
         inline bool operator == (const hybrid_iterator& x) const
         {
+	  if (isEnd() && x.isEnd())
+	    return true;
 	  if (currnode == NULL) {
 	    return (x.currnode_static == currnode_static) && (x.currslot_static == currslot_static) && (x.currdata_pos_static == currdata_pos_static) && (x.currtree == currtree);
 	  }
@@ -1675,6 +1705,8 @@ public:
         /// Inequality of iterators
         inline bool operator != (const hybrid_iterator& x) const
         {
+	  if (isEnd() && x.isEnd())
+	    return false;
 	  if (currnode == NULL) {
 	    return (x.currnode_static != currnode_static) || (x.currslot_static != currslot_static) || (x.currdata_pos_static != currdata_pos_static) || (x.currtree != currtree);
 	  }
@@ -1775,15 +1807,12 @@ public:
         : m_root(NULL), m_headleaf(NULL), m_tailleaf(NULL), m_allocator(alloc),
           m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL) //h
     {
-
+      bits = 0;
       //bloom filter
       if (USE_BLOOM_FILTER)
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
-      else
-	bits = 0;
 
       static_data_size = 0;
-
     }
 
     /// Constructor initializing an empty B+ tree with a special key
@@ -1794,15 +1823,12 @@ public:
           m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL), //h
           m_key_less(kcf), m_allocator(alloc)
     {
-
+      bits = 0;
       //bloom filter
       if (USE_BLOOM_FILTER)
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
-      else
-	bits = 0;
 
       static_data_size = 0;
-
     }
 
     /// Constructor initializing a B+ tree with the range [first,last). The
@@ -1814,12 +1840,10 @@ public:
         : m_root(NULL), m_headleaf(NULL), m_tailleaf(NULL), m_allocator(alloc),
           m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL) //h
     {
-
+      bits = 0;
       //bloom filter
       if (USE_BLOOM_FILTER)
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
-      else
-	bits = 0;
 
       static_data_size = 0;
 
@@ -1836,12 +1860,10 @@ public:
           m_root_static(NULL), m_headleaf_static(NULL), m_tailleaf_static(NULL),
           m_key_less(kcf), m_allocator(alloc)
     {
-
+      bits = 0;
       //bloom filter
       if (USE_BLOOM_FILTER)
 	bloom_filter = CreateEmptyFilter(BTREE_MERGE_THRESHOLD);
-      else
-	bits = 0;
 
       static_data_size = 0;
 
@@ -1857,6 +1879,7 @@ public:
 	free(bloom_filter);
 
       clear();
+      clear_static();
     }
 
     /// Fast swapping of two identical B+ tree objects.
@@ -2262,7 +2285,7 @@ public:
 
     inline hybrid_iterator hybrid_begin()
     {
-      return hybrid_iterator(m_headleaf, -1, m_headleaf_static, -1, 0);
+      return hybrid_iterator(m_headleaf, -1, m_headleaf_static, -1, 0, m_key_less);
     }
 
     /// Constructs a read/data-write iterator that points to the first invalid
@@ -2274,7 +2297,7 @@ public:
 
     inline hybrid_iterator hybrid_end()
     {
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
+      return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_key_less);
     }
 
     /// Constructs a read-only constant iterator that points to the first slot
@@ -2423,7 +2446,7 @@ public:
     /// Return the number of key/data pairs in the B+ tree
     inline size_type size() const
     {
-        return m_stats.itemcount;
+        return m_stats.itemcount + m_stats_static.itemcount;
     }
 
     //huanchen
@@ -2579,7 +2602,7 @@ public:
 	if (!exist) return hybrid_end();
 	for (int i = 0; i < leaf->slotdata_count[slot]; i++) {
 	  if (leaf->slotdata[slot][i] != (data_type)0)
-	    return hybrid_iterator(NULL, 0, leaf, slot, i, 1);
+	    return hybrid_iterator(NULL, 0, leaf, slot, i, 1, m_key_less);
 	}
 	return hybrid_end();
     }
@@ -2598,7 +2621,7 @@ public:
       if (key_iter == end()) {
         return find_static(key);
       }
-      return hybrid_iterator(key_iter.currnode, key_iter.currslot, NULL, 0, 0);
+      return hybrid_iterator(key_iter.currnode, key_iter.currslot, NULL, 0, 0, m_key_less);
     }
 
     /// Tries to locate a key in the B+ tree and returns an constant iterator
@@ -2695,7 +2718,7 @@ public:
         leaf_multidata_node* leaf = static_cast<leaf_multidata_node*>(n);
 
         int slot = find_lower(leaf, key);
-	hybrid_iterator iter = hybrid_iterator(NULL, 0, leaf, slot, 1);
+	hybrid_iterator iter = hybrid_iterator(NULL, 0, leaf, slot, 1, m_key_less);
 	if (!iter.isEnd()) {
 	  if (leaf->slotdata[slot][0] == (data_type)0)
 	    iter++;
@@ -2708,20 +2731,20 @@ public:
       iterator iter = lower_bound(key);
       hybrid_iterator iter_static = lower_bound_static(key);
 
-      if ((iter == end()) && (iter_static == hybrid_end())) {
+      if ((iter == end()) && (iter_static.isEnd())) {
         return hybrid_end();
       }
       else if (iter == end()) {
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1);
+        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1, m_key_less);
       }
-      else if (iter_static == hybrid_end()) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
+      else if (iter_static.isEnd()) {
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_key_less);
       }
       else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode_static()->slotkey[iter_static.get_currslot_static()])) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 0);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 0, m_key_less);
       }
       else {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1, m_key_less);
       }
     }
 
@@ -2792,7 +2815,7 @@ public:
 	  slot = 0;
 	}
 
-	hybrid_iterator iter = hybrid_iterator(NULL, 0, leaf, slot, 1);
+	hybrid_iterator iter = hybrid_iterator(NULL, 0, leaf, slot, 1, m_key_less);
 	if (!iter.isEnd()) {
 	  if (leaf->slotdata[slot][0] == (data_type)0)
 	    iter++;
@@ -2805,20 +2828,20 @@ public:
       iterator iter = upper_bound(key);
       hybrid_iterator iter_static = upper_bound_static(key);
 
-      if ((iter == end()) && (iter_static == hybrid_end())) {
+      if ((iter == end()) && (iter_static.isEnd())) {
         return hybrid_end();
       }
       else if (iter == end()) {
-        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1);
+        return hybrid_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0, iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1, m_key_less);
       }
-      else if (iter_static == hybrid_end()) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0);
+      else if (iter_static.isEnd()) {
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), m_tailleaf_static, m_tailleaf_static ? m_tailleaf_static->slotuse : 0, 0, m_key_less);
       }
       else if (key_lessequal(iter.get_currnode()->slotkey[iter.get_currslot()], iter_static.get_currnode_static()->slotkey[iter_static.get_currslot_static()])) {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 0);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 0, m_key_less);
       }
       else {
-        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1);
+        return hybrid_iterator(iter.get_currnode(), iter.get_currslot(), iter_static.get_currnode_static(), iter_static.get_currslot_static(), iter_static.get_currdata_pos_static(), 1, m_key_less);
       }
     }
 
@@ -2857,7 +2880,7 @@ public:
 	if ((m_stats.itemcount == 0) || !KeyMayMatch(reinterpret_cast<const char*>(&key), sizeof(key_type), bloom_filter)) {
 	  hybrid_iterator iter_lower = lower_bound_static(key);
 	  hybrid_iterator iter_upper = upper_bound_static(key);
-	  return std::pair<hybrid_iterator, hybrid_iterator>(hybrid_iterator(NULL, 0, iter_lower.get_currnode_static(), iter_lower.get_currslot_static(), iter_lower.get_currdata_pos_static(), 1), hybrid_iterator(NULL, 0, iter_upper.get_currnode_static(), iter_upper.get_currslot_static(), iter_upper.get_currdata_pos_static(), 1));
+	  return std::pair<hybrid_iterator, hybrid_iterator>(hybrid_iterator(NULL, 0, iter_lower.get_currnode_static(), iter_lower.get_currslot_static(), iter_lower.get_currdata_pos_static(), 1, m_key_less), hybrid_iterator(NULL, 0, iter_upper.get_currnode_static(), iter_upper.get_currslot_static(), iter_upper.get_currdata_pos_static(), 1, m_key_less));
 	}
       }
       return std::pair<hybrid_iterator, hybrid_iterator>(lower_bound_hybrid(key), upper_bound_hybrid(key));
@@ -3630,7 +3653,8 @@ public:
     void erase_static(hybrid_iterator iter)
     {
       if (iter != hybrid_end()) {
-	iter.get_currnode_static()->slotdata[iter.get_currslot_static()][iter.get_currdata_pos_static()] = (data_type)0;	
+	iter.get_currnode_static()->slotdata[iter.get_currslot_static()][iter.get_currdata_pos_static()] = (data_type)0;
+	--m_stats_static.itemcount;
       }
     }
 
@@ -3639,7 +3663,7 @@ public:
 	erase(iterator(iter.get_currnode(), iter.get_currslot()));
       }
       else if (iter.get_currtree() == 1) {
-	erase_static(hybrid_iterator(NULL, 0, iter.get_currnode_static(), iter.get_currslot_static(), iter.get_currdata_pos_static(), 1));
+	erase_static(hybrid_iterator(NULL, 0, iter.get_currnode_static(), iter.get_currslot_static(), iter.get_currdata_pos_static(), 1, m_key_less));
       }
     }
 
