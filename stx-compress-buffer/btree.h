@@ -3192,7 +3192,7 @@ public:
 
         int slot = find_lower(leaf, key);
 
-        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != 0))
+        return (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot]) && (leaf->slotdata[slot] != (data_type)0))
       ? hybrid_iterator(NULL, 0, leaf_compressed, leaf, slot, 1, m_leaf_buffer, m_key_less) : hybrid_end();
     }
 
@@ -4250,6 +4250,7 @@ public:
       memcpy(iter.get_currnode_static_compressed()->data, str.data(), str.size());
       m_compressed_data_size += iter.get_currnode_static_compressed()->size;
 
+      iter.get_currnode_static_compressed()->buffer_idx = INVALID_BUFFER_IDX;
       --m_stats_static.itemcount;
       return true;
     }

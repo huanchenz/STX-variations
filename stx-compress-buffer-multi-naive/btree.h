@@ -1540,14 +1540,14 @@ public:
 	  if (currnode_compressed != NULL) {
 	    return (currnode_compressed->prevleaf == NULL) && (currslot == 0);
 	  }
-	  return false;
+	  return true;
 	}
 
 	inline bool isEnd() {
 	  if (currnode_compressed != NULL) {
 	    return (currnode_compressed->nextleaf == NULL) && (currslot == currnode.slotuse);
 	  }
-	  return false;
+	  return true;
 	}
 
         /// Dereference the iterator, this is not a value_type& because key and
@@ -1818,6 +1818,19 @@ public:
         inline leaf_buffer* get_buffer() {
           return buffer;
         }
+
+	inline void print() {
+	  std::cout << "==============================================\n";
+	  if (currnode != NULL) {
+	    std::cout << "currnode slotuse = " << currnode->slotuse << "\n";
+	    std::cout << "currslot = " << currslot << "\n";
+	  }
+	  if (currnode_static_compressed != NULL) {
+	    std::cout << "currnode_static_compressed slotuse = " << currnode_static_compressed->slotuse << "\n";
+	    std::cout << "currslot_static = " << currslot_static << "\n";
+	  }
+	  std::cout << "currtree = " << currtree << "\n";
+	}
 
 	inline bool isComplete() {
 	  return (currnode != NULL) && (currnode_static_compressed != NULL);
@@ -4199,6 +4212,8 @@ public:
       memcpy(iter.get_currnode_static_compressed()->data, str.data(), str.size());
       m_compressed_data_size += iter.get_currnode_static_compressed()->size;
 
+      iter.get_currnode_static_compressed()->buffer_idx = INVALID_BUFFER_IDX;
+      --m_stats_static.itemcount;
       return true;
     }
 
